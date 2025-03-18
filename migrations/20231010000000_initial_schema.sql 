@@ -1,0 +1,41 @@
+-- Create users table
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    telegram_id BIGINT UNIQUE NOT NULL,
+    username VARCHAR,
+    solana_address VARCHAR,
+    encrypted_private_key VARCHAR,
+    mnemonic VARCHAR,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+-- Create transactions table
+CREATE TABLE IF NOT EXISTS transactions (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    recipient_address VARCHAR NOT NULL,
+    amount NUMERIC NOT NULL,
+    token_symbol VARCHAR NOT NULL,
+    tx_signature VARCHAR,
+    timestamp TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    status VARCHAR NOT NULL
+);
+
+-- Create index on user_id in transactions
+CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
+
+-- Create swaps table
+CREATE TABLE IF NOT EXISTS swaps (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    from_token VARCHAR NOT NULL,
+    to_token VARCHAR NOT NULL,
+    amount_in NUMERIC NOT NULL,
+    amount_out NUMERIC NOT NULL,
+    tx_signature VARCHAR,
+    timestamp TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    status VARCHAR NOT NULL
+);
+
+-- Create index on user_id in swaps
+CREATE INDEX IF NOT EXISTS idx_swaps_user_id ON swaps(user_id);
