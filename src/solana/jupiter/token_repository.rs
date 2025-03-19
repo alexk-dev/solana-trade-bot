@@ -1,7 +1,7 @@
-// src/solana/jupiter/token_repository.rs
 use crate::solana::jupiter::models::Token;
 use crate::solana::jupiter::{JupiterToken, SOL_MINT, USDC_MINT};
 use anyhow::{anyhow, Result};
+use async_trait::async_trait;
 use log::{error, info, warn};
 use reqwest::Client;
 use serde_json::Value;
@@ -16,55 +16,31 @@ fn token_list_url() -> String {
 }
 
 /// Репозиторий для работы с токенами
-pub struct TokenRepository {
-    pub http_client: Client,
+#[async_trait]
+pub trait TokenRepository: Send + Sync {
+    async fn get_token_by_id(&self, token_id: &str) -> Result<Token>;
+}
+
+/// Реализация репозитория для работы с токенами Jupiter
+pub struct JupiterTokenRepository {
+    http_client: Client,
     token_cache: Arc<Mutex<HashMap<String, Token>>>,
 }
 
-impl TokenRepository {
-    /// Создает новый экземпляр репозитория
+impl JupiterTokenRepository {
+    /// Создает новый экземпляр репозитория для Jupiter
     pub fn new() -> Self {
         Self {
             http_client: Client::new(),
             token_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
+}
 
-    /// Получает список всех токенов
-    pub async fn get_all_tokens(&self) -> Result<Vec<Token>> {
-        let url = token_list_url();
-
-        let response = self
-            .http_client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| anyhow!("HTTP request failed: {}", e))?;
-
-        if !response.status().is_success() {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(anyhow!("Jupiter API error: {}", error_text));
-        }
-
-        let tokens: Vec<Token> = response
-            .json()
-            .await
-            .map_err(|e| anyhow!("Failed to parse token list response: {}", e))?;
-
-        // Обновляем кеш
-        let mut cache = self.token_cache.lock().unwrap();
-        for token in &tokens {
-            cache.insert(token.id.clone(), token.clone());
-        }
-
-        Ok(tokens)
-    }
-
+#[async_trait]
+impl TokenRepository for JupiterTokenRepository {
     /// Получает информацию о токене по его ID
-    pub async fn get_token_by_id(&mut self, token_id: &str) -> Result<Token> {
+    async fn get_token_by_id(&self, token_id: &str) -> Result<Token> {
         info!("Getting token by ID: {}", token_id);
 
         // Запрашиваем токен через API
@@ -77,10 +53,10 @@ impl TokenRepository {
 
         info!(
             "Jupiter API response: {} for token {}",
-            response.status(),
+            &response.status(),
             token_id
         );
-        if !response.status().is_success() {
+        if !&response.status().is_success() {
             // Если это SOL или USDC, вернем заглушку
             if token_id == SOL_MINT {
                 let sol = Token {
@@ -104,10 +80,7 @@ impl TokenRepository {
                 return Ok(usdc);
             }
 
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
+            let error_text = response.text().await.unwrap_or("Unknown error".to_string());
             error!("Jupiter API error [get_token_by_id]: {}", error_text);
             return Err(anyhow!("Jupiter API error: {}", error_text));
         }
@@ -128,29 +101,5 @@ impl TokenRepository {
         };
 
         Ok(token)
-    }
-
-    /// Поиск токена по символу
-    pub async fn find_token_by_symbol(&self, symbol: &str) -> Result<Token> {
-        // Пытаемся найти в кеше
-        {
-            let cache = self.token_cache.lock().unwrap();
-            for token in cache.values() {
-                if token.symbol.to_uppercase() == symbol.to_uppercase() {
-                    return Ok(token.clone());
-                }
-            }
-        }
-
-        // Если не в кеше, запрашиваем все токены
-        let tokens = self.get_all_tokens().await?;
-
-        for token in &tokens {
-            if token.symbol.to_uppercase() == symbol.to_uppercase() {
-                return Ok(token.clone());
-            }
-        }
-
-        Err(anyhow!("Token not found: {}", symbol))
     }
 }

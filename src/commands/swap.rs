@@ -11,7 +11,9 @@ use super::CommandHandler;
 use crate::db;
 use crate::model::State;
 use crate::solana;
-use crate::solana::jupiter::{QuoteService, SwapService};
+use crate::solana::jupiter::quote_service::JupiterQuoteService;
+use crate::solana::jupiter::token_repository::JupiterTokenRepository;
+use crate::solana::jupiter::{QuoteService, SwapService, TokenRepository};
 use crate::MyDialogue;
 
 pub struct SwapCommand;
@@ -80,8 +82,13 @@ impl CommandHandler for SwapCommand {
                         .await?;
 
                     // Создаем сервис свопа
-                    let mut swap_service = SwapService::new();
-                    let mut quote_service = QuoteService::new();
+                    let token_repository = Arc::new(JupiterTokenRepository::new());
+                    let quote_service =
+                        Arc::new(JupiterQuoteService::new(JupiterTokenRepository::new()));
+                    let swap_service = Arc::new(SwapService::new(
+                        JupiterTokenRepository::new(),
+                        JupiterQuoteService::new(JupiterTokenRepository::new()),
+                    ));
 
                     // Получаем котировку
                     match quote_service
@@ -90,26 +97,22 @@ impl CommandHandler for SwapCommand {
                     {
                         Ok(quote) => {
                             // Получаем информацию о целевом токене
-                            let target_token_info = match swap_service
-                                .token_service
-                                .token_repository
-                                .get_token_by_id(&target_token)
-                                .await
-                            {
-                                Ok(token) => token,
-                                Err(_) => {
-                                    bot.edit_message_text(
-                                        msg.chat.id,
-                                        processing_msg.id,
-                                        format!(
-                                            "❌ Ошибка при получении информации о токене {}",
-                                            target_token
-                                        ),
-                                    )
-                                    .await?;
-                                    return Ok(());
-                                }
-                            };
+                            let target_token_info =
+                                match token_repository.get_token_by_id(&target_token).await {
+                                    Ok(token) => token,
+                                    Err(_) => {
+                                        bot.edit_message_text(
+                                            msg.chat.id,
+                                            processing_msg.id,
+                                            format!(
+                                                "❌ Ошибка при получении информации о токене {}",
+                                                target_token
+                                            ),
+                                        )
+                                        .await?;
+                                        return Ok(());
+                                    }
+                                };
 
                             let out_amount: f64 = quote.out_amount.to_f64().unwrap();
 

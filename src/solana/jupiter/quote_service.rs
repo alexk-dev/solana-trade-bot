@@ -1,38 +1,54 @@
+use crate::solana::jupiter::token_repository::TokenRepository;
 use anyhow::{anyhow, Result};
+use async_trait::async_trait;
+use jupiter_swap_api_client::quote::{QuoteRequest, QuoteResponse};
+use jupiter_swap_api_client::JupiterSwapApiClient;
 use log::{debug, info};
 use solana_sdk::pubkey::Pubkey;
 use std::str::FromStr;
 
-use crate::solana::jupiter::{TokenRepository, TokenService};
-use jupiter_swap_api_client::quote::{QuoteRequest, QuoteResponse};
-use jupiter_swap_api_client::JupiterSwapApiClient;
-use reqwest::Client;
-
 /// Сервис для получения котировок обмена токенов
-pub struct QuoteService {
-    pub token_repository: TokenRepository,
-    jupiter_client: JupiterSwapApiClient,
+#[async_trait]
+pub trait QuoteService: Send + Sync {
+    async fn get_swap_quote(
+        &self,
+        amount: f64,
+        source_token: &str,
+        target_token: &str,
+        slippage: f64,
+    ) -> Result<QuoteResponse>;
 }
 
-impl QuoteService {
+pub struct JupiterQuoteService<T: TokenRepository> {
+    pub token_repository: T,
+    pub jupiter_client: JupiterSwapApiClient,
+}
+
+impl<T: TokenRepository> JupiterQuoteService<T> {
     /// Создает новый экземпляр сервиса котировок
-    pub fn new() -> Self {
+    pub fn new(token_repository: T) -> Self {
         Self {
-            token_repository: TokenRepository::new(),
+            token_repository,
             jupiter_client: JupiterSwapApiClient::new("https://quote-api.jup.ag/v6".to_string()),
         }
     }
+}
 
+#[async_trait]
+impl<T: TokenRepository + Send + Sync> QuoteService for JupiterQuoteService<T> {
     /// Получает котировку для обмена токенов
-    pub async fn get_swap_quote(
-        &mut self,
+    async fn get_swap_quote(
+        &self,
         amount: f64,
         source_token: &str,
         target_token: &str,
         slippage: f64,
     ) -> Result<QuoteResponse> {
         // Получаем информацию о токенах для определения decimals
-        let source_token_info = self.token_repository.get_token_by_id(source_token).await?;
+        let source_token_info = &self
+            .token_repository
+            .get_token_by_id(&source_token.to_string())
+            .await?;
 
         // Конвертируем amount с учетом decimals
         let decimals = source_token_info.decimals as u32;

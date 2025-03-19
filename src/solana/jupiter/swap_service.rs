@@ -1,55 +1,54 @@
+use crate::solana::jupiter::quote_service::QuoteService;
+use crate::solana::jupiter::token_repository::TokenRepository;
 use anyhow::{anyhow, Result};
+use async_trait::async_trait;
+use jupiter_swap_api_client::{
+    quote::QuoteResponse,
+    swap::{SwapInstructionsResponse, SwapRequest as JupiterSwapRequest, SwapResponse},
+    transaction_config::TransactionConfig,
+    JupiterSwapApiClient,
+};
 use log::{debug, error, info};
-use reqwest::Client;
+use reqwest::Client as HttpClient;
 use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_sdk::transaction::VersionedTransaction;
 use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 use std::collections::HashMap;
-use std::env;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use crate::solana::jupiter::{models::TokenPrice, QuoteService, SwapRequest, TokenService};
-use jupiter_swap_api_client::{
-    quote::QuoteRequest, swap::SwapRequest as JupiterSwapRequest,
-    transaction_config::TransactionConfig, JupiterSwapApiClient,
-};
-use solana_sdk::signature::NullSigner;
-use solana_sdk::transaction::VersionedTransaction;
-
 /// Сервис для выполнения операций свопа с использованием Jupiter
-pub struct SwapService {
-    pub token_service: TokenService,
-    http_client: Client,
+pub struct SwapService<T: TokenRepository, Q: QuoteService> {
+    token_repository: T,
+    quote_service: Q,
     jupiter_client: JupiterSwapApiClient,
-    quote_service: QuoteService,
 }
 
-impl SwapService {
+impl<T: TokenRepository, Q: QuoteService> SwapService<T, Q> {
     /// Создает новый экземпляр сервиса свопа с использованием официального SDK
-    pub fn new() -> Self {
+    pub fn new(token_repository: T, quote_service: Q) -> Self {
         Self {
-            token_service: TokenService::new(),
-            http_client: Client::new(),
+            token_repository,
+            quote_service,
             jupiter_client: JupiterSwapApiClient::new("https://quote-api.jup.ag/v6".to_string()),
-            quote_service: QuoteService::new(),
         }
     }
 
     /// Подготавливает и получает транзакцию свопа
     pub async fn prepare_swap(
-        &mut self,
+        &self,
         amount: f64,
         source_token: &str,
         target_token: &str,
         slippage: f64,
         user_public_key: &str,
-    ) -> Result<jupiter_swap_api_client::swap::SwapResponse> {
+    ) -> Result<SwapResponse> {
         // Получаем котировку
         debug!(
             "Getting swap quote for {} {} to {}",
             amount, source_token, target_token
         );
-        let quote_response = self
+        let quote_response = &self
             .quote_service
             .get_swap_quote(amount, source_token, target_token, slippage)
             .await?;
@@ -90,79 +89,41 @@ impl SwapService {
         &self,
         solana_client: &Arc<RpcClient>,
         keypair: &Keypair,
-        swap_response: &jupiter_swap_api_client::swap::SwapResponse,
+        swap_response: &SwapResponse,
     ) -> Result<String> {
         info!("Executing swap transaction");
-
-        // Теперь мы используем транзакцию напрямую из SDK
-        // let raw_transaction = swap_response.swap_transaction.clone();
-
-        // Отправляем транзакцию в сеть
-        // let signature = match solana_client.send_transaction_with_config(
-        //     &raw_transaction,
-        //     solana_client::rpc_config::RpcSendTransactionConfig {
-        //         skip_preflight: true,
-        //         preflight_commitment: None,
-        //         encoding: None,
-        //         max_retries: Some(5),
-        //         min_context_slot: None,
-        //     }
-        // ).await {
-        //     Ok(sig) => sig,
-        //     Err(e) => {
-        //         error!("Failed to send transaction: {}", e);
-        //         return Err(anyhow!("Failed to send transaction: {}", e));
-        //     }
-        // };
-        //
-        // info!("Transaction sent successfully: {}", signature);
-        //
-        // // Возвращаем подпись транзакции
-        // Ok(signature.to_string())
         println!("Raw tx len: {}", swap_response.swap_transaction.len());
 
         let versioned_transaction: VersionedTransaction =
-            bincode::deserialize(&swap_response.swap_transaction).unwrap();
+            bincode::deserialize(&swap_response.swap_transaction)
+                .map_err(|e| anyhow!("Failed to deserialize transaction: {}", e))?;
 
-        // Replace with a keypair or other struct implementing signer
+        // Подписываем транзакцию
         let signed_versioned_transaction =
-            VersionedTransaction::try_new(versioned_transaction.message, &[&keypair]).unwrap();
-
-        // send with rpc client...
-        //let rpc_client = RpcClient::new("https://api.devnet.solana.com".into());
-        let rpc_client = RpcClient::new("https://api.mainnet-beta.solana.com".into());
+            VersionedTransaction::try_new(versioned_transaction.message, &[keypair])
+                .map_err(|e| anyhow!("Failed to sign transaction: {}", e))?;
 
         info!("Calling network");
 
-        let signature = rpc_client
+        let signature = solana_client
             .send_and_confirm_transaction(&signed_versioned_transaction)
-            .await?;
+            .await
+            .map_err(|e| anyhow!("Failed to send transaction: {}", e))?;
 
-        println!("{signature}");
-
-        // // POST /swap-instructions
-        // let swap_instructions = self.jupiter_client
-        //     .swap_instructions(&SwapRequest {
-        //         user_public_key: keypair,
-        //         quote_response,
-        //         config: TransactionConfig::default(),
-        //     })
-        //     .await
-        //     .unwrap();
-        // println!("swap_instructions: {swap_instructions:?}");
+        println!("Transaction signature: {}", signature);
 
         Ok(signature.to_string())
     }
 
     /// Получает аудит транзакции свопа
     pub async fn get_swap_instructions(
-        &mut self,
+        &self,
         amount: f64,
         source_token: &str,
         target_token: &str,
         slippage: f64,
         user_public_key: &str,
-    ) -> Result<jupiter_swap_api_client::swap::SwapInstructionsResponse> {
+    ) -> Result<SwapInstructionsResponse> {
         // Получаем котировку
         let quote_response = self
             .quote_service

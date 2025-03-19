@@ -6,7 +6,11 @@ use std::sync::Arc;
 use teloxide::prelude::*;
 
 use super::CommandHandler;
-use crate::solana::jupiter::TokenService;
+use crate::solana::jupiter::price_service::JupiterPriceService;
+use crate::solana::jupiter::quote_service::JupiterQuoteService;
+use crate::solana::jupiter::route_service::JupiterRouteService;
+use crate::solana::jupiter::token_repository::JupiterTokenRepository;
+use crate::solana::jupiter::{Config, PriceService, RouteService};
 use crate::MyDialogue;
 
 pub struct PriceCommand;
@@ -36,8 +40,13 @@ impl CommandHandler for PriceCommand {
                 .send_message(msg.chat.id, format!("Получение цены для {}...", token))
                 .await?;
 
-            let mut token_service = TokenService::new();
-            match token_service.get_token_price(&token).await {
+            let mut route_service = JupiterRouteService::new(Config::from_env());
+            let price_service = JupiterPriceService::new(
+                JupiterTokenRepository::new(),
+                JupiterQuoteService::new(JupiterTokenRepository::new()),
+                Config::from_env(),
+            );
+            match price_service.get_token_price(&token).await {
                 Ok(price_info) => {
                     // price_info — это структура TokenPrice
                     // Чтобы вывести её в текст, обращаемся к нужным полям,
