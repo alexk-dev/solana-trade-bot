@@ -2,11 +2,7 @@ use anyhow::{anyhow, Result};
 use bip39::{Language, Mnemonic};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use rand::{rng, RngCore}; // Если 'rng()' не доступна – замените на {thread_rng, RngCore}.
-use solana_sdk::{
-    pubkey::Pubkey,
-    signature::Keypair,
-    signer::Signer,
-};
+use solana_sdk::{pubkey::Pubkey, signature::Keypair, signer::Signer};
 use std::convert::TryInto;
 use std::str::FromStr;
 
@@ -48,9 +44,9 @@ pub fn generate_wallet() -> Result<(String, String, String)> {
     let keypair_base58 = keypair_to_base58(&sol_keypair)?;
 
     Ok((
-        mnemonic.to_string(),  // 12-словная фраза
-        keypair_base58,        // приватник (base58)
-        pubkey.to_string()     // публичный ключ Solana
+        mnemonic.to_string(), // 12-словная фраза
+        keypair_base58,       // приватник (base58)
+        pubkey.to_string(),   // публичный ключ Solana
     ))
 }
 
@@ -78,6 +74,5 @@ pub fn keypair_from_base58(keypair_base58: &str) -> Result<Keypair> {
 
 /// Преобразовать base58-строку в Solana `Pubkey`.
 pub fn parse_pubkey(address: &str) -> Result<Pubkey> {
-    Pubkey::from_str(address)
-        .map_err(|e| anyhow!("Invalid Solana address: {}", e))
+    Pubkey::from_str(address).map_err(|e| anyhow!("Invalid Solana address: {}", e))
 }

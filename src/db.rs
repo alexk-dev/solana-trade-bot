@@ -1,7 +1,7 @@
+use crate::model::{Swap, Transaction, User};
 use chrono::Utc;
-use log::{info, error};
-use sqlx::{PgPool, postgres::PgQueryResult, Error as SqlxError, Row};
-use crate::model::{User, Transaction, Swap};
+use log::{error, info};
+use sqlx::{postgres::PgQueryResult, Error as SqlxError, PgPool, Row};
 
 // Check if user exists in database
 pub async fn check_user_exists(pool: &PgPool, telegram_id: i64) -> Result<bool, SqlxError> {
@@ -15,13 +15,19 @@ pub async fn check_user_exists(pool: &PgPool, telegram_id: i64) -> Result<bool, 
 }
 
 // Create new user in database
-pub async fn create_user(pool: &PgPool, telegram_id: i64, username: Option<String>) -> Result<i32, SqlxError> {
-    let row = sqlx::query("INSERT INTO users (telegram_id, username, created_at) VALUES ($1, $2, $3) RETURNING id")
-        .bind(telegram_id)
-        .bind(username)
-        .bind(Utc::now())
-        .fetch_one(pool)
-        .await?;
+pub async fn create_user(
+    pool: &PgPool,
+    telegram_id: i64,
+    username: Option<String>,
+) -> Result<i32, SqlxError> {
+    let row = sqlx::query(
+        "INSERT INTO users (telegram_id, username, created_at) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(telegram_id)
+    .bind(username)
+    .bind(Utc::now())
+    .fetch_one(pool)
+    .await?;
 
     let id: i32 = row.try_get("id")?;
     info!("Created new user with ID: {}", id);
@@ -55,7 +61,7 @@ pub async fn save_wallet_info(
     telegram_id: i64,
     address: &str,
     keypair: &str,
-    mnemonic: &str
+    mnemonic: &str,
 ) -> Result<PgQueryResult, SqlxError> {
     let result = sqlx::query("UPDATE users SET solana_address = $1, encrypted_private_key = $2, mnemonic = $3 WHERE telegram_id = $4")
         .bind(address)
@@ -65,7 +71,10 @@ pub async fn save_wallet_info(
         .execute(pool)
         .await?;
 
-    info!("Updated wallet info for user with Telegram ID: {}", telegram_id);
+    info!(
+        "Updated wallet info for user with Telegram ID: {}",
+        telegram_id
+    );
 
     Ok(result)
 }
@@ -78,7 +87,7 @@ pub async fn record_transaction(
     amount: f64,
     token_symbol: &str,
     tx_signature: &Option<String>,
-    status: &str
+    status: &str,
 ) -> Result<i32, SqlxError> {
     // Get user ID from telegram_id
     let user = get_user_by_telegram_id(pool, telegram_id).await?;
@@ -109,7 +118,7 @@ pub async fn record_swap(
     amount_in: f64,
     amount_out: f64,
     tx_signature: &Option<String>,
-    status: &str
+    status: &str,
 ) -> Result<i32, SqlxError> {
     // Get user ID from telegram_id
     let user = get_user_by_telegram_id(pool, telegram_id).await?;
@@ -133,7 +142,10 @@ pub async fn record_swap(
 }
 
 // Get user transaction history
-pub async fn get_user_transactions(pool: &PgPool, telegram_id: i64) -> Result<Vec<Transaction>, SqlxError> {
+pub async fn get_user_transactions(
+    pool: &PgPool,
+    telegram_id: i64,
+) -> Result<Vec<Transaction>, SqlxError> {
     // Get user ID from telegram_id
     let user = get_user_by_telegram_id(pool, telegram_id).await?;
 

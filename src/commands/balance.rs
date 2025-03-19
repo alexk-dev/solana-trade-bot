@@ -1,14 +1,14 @@
 // src/commands/balance.rs
 use anyhow::Result;
 use log::info;
-use sqlx::PgPool;
 use solana_client::nonblocking::rpc_client::RpcClient;
+use sqlx::PgPool;
 use std::sync::Arc;
 use teloxide::{prelude::*, types::ParseMode};
 
-use crate::{db, solana};
-use crate::MyDialogue;
 use super::CommandHandler;
+use crate::MyDialogue;
+use crate::{db, solana};
 
 pub struct BalanceCommand;
 
@@ -26,10 +26,11 @@ impl CommandHandler for BalanceCommand {
         msg: Message,
         _dialogue: Option<MyDialogue>,
         db_pool: Option<PgPool>,
-        solana_client: Option<Arc<RpcClient>>
+        solana_client: Option<Arc<RpcClient>>,
     ) -> Result<()> {
         let db_pool = db_pool.ok_or_else(|| anyhow::anyhow!("Database pool not provided"))?;
-        let solana_client = solana_client.ok_or_else(|| anyhow::anyhow!("Solana client not provided"))?;
+        let solana_client =
+            solana_client.ok_or_else(|| anyhow::anyhow!("Solana client not provided"))?;
         let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
 
         info!("Balance command received from Telegram ID: {}", telegram_id);
@@ -39,10 +40,9 @@ impl CommandHandler for BalanceCommand {
 
         if let Some(address) = user.solana_address {
             // Send a status message
-            let status_message = bot.send_message(
-                msg.chat.id,
-                "Получение информации о балансе..."
-            ).await?;
+            let status_message = bot
+                .send_message(msg.chat.id, "Получение информации о балансе...")
+                .await?;
 
             // Get SOL balance
             let sol_balance = solana::get_sol_balance(&solana_client, &address).await?;
@@ -66,9 +66,9 @@ impl CommandHandler for BalanceCommand {
         } else {
             bot.send_message(
                 msg.chat.id,
-                "У вас еще нет кошелька. Используйте /create_wallet чтобы создать новый кошелек."
+                "У вас еще нет кошелька. Используйте /create_wallet чтобы создать новый кошелек.",
             )
-                .await?;
+            .await?;
         }
 
         Ok(())

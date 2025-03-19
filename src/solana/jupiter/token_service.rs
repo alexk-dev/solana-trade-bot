@@ -1,11 +1,11 @@
 // src/solana/jupiter/token_service.rs
 use anyhow::{anyhow, Result};
-use log::{info, debug};
+use log::{debug, info};
+use reqwest::Client;
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::env;
 use std::time::{SystemTime, UNIX_EPOCH};
-use reqwest::Client;
-use serde::Deserialize;
 
 use crate::solana::jupiter::models::*;
 use crate::solana::jupiter::token_repository::TokenRepository;
@@ -46,7 +46,8 @@ impl TokenService {
         let quote = self.get_swap_quote(1.0, SOL_MINT, USDC_MINT, 0.5).await?;
 
         // Конвертируем строку outAmount в f64
-        let out_amount = quote.out_amount
+        let out_amount = quote
+            .out_amount
             .parse::<f64>()
             .map_err(|e| anyhow!("Failed to parse out amount: {}", e))?;
 
@@ -62,10 +63,12 @@ impl TokenService {
     where
         T: serde::de::DeserializeOwned,
     {
-        if let Ok(ErrorResponse { error }) = serde_json::from_value::<ErrorResponse>(value.clone()) {
+        if let Ok(ErrorResponse { error }) = serde_json::from_value::<ErrorResponse>(value.clone())
+        {
             Err(anyhow!("Jupiter API error: {}", error))
         } else {
-            serde_json::from_value(value).map_err(|err| anyhow!("JSON deserialization error: {}", err))
+            serde_json::from_value(value)
+                .map_err(|err| anyhow!("JSON deserialization error: {}", err))
         }
     }
 
@@ -99,20 +102,26 @@ impl TokenService {
         );
 
         // Отправляем запрос
-        let response = self.http_client.get(&url)
+        let response = self
+            .http_client
+            .get(&url)
             .send()
             .await
             .map_err(|e| anyhow!("HTTP request failed: {}", e))?;
 
         // Проверяем статус
         if !response.status().is_success() {
-            let error_text = response.text().await
+            let error_text = response
+                .text()
+                .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(anyhow!("Jupiter API error: {}", error_text));
         }
 
         // Парсим ответ
-        let json_value = response.json::<serde_json::Value>().await
+        let json_value = response
+            .json::<serde_json::Value>()
+            .await
             .map_err(|e| anyhow!("Failed to parse response as JSON: {}", e))?;
 
         // Проверяем на наличие ошибок в ответе API
@@ -146,15 +155,15 @@ impl TokenService {
         let token = self.token_repository.get_token_by_id(token_id).await?;
 
         // Получаем котировку для обмена 1 единицы токена на SOL
-        let quote = self.get_swap_quote(
-            1.0,
-            token_id,
-            SOL_MINT,
-            0.5 // 0.5% slippage
-        ).await?;
+        let quote = self
+            .get_swap_quote(
+                1.0, token_id, SOL_MINT, 0.5, // 0.5% slippage
+            )
+            .await?;
 
         // Конвертируем строку outAmount в f64 и учитываем decimals для SOL (9)
-        let out_amount = quote.out_amount
+        let out_amount = quote
+            .out_amount
             .parse::<f64>()
             .map_err(|e| anyhow!("Failed to parse out amount: {}", e))?;
 
@@ -189,18 +198,24 @@ impl TokenService {
             indexed_route_map: HashMap<usize, Vec<usize>>,
         }
 
-        let response = self.http_client.get(&url)
+        let response = self
+            .http_client
+            .get(&url)
             .send()
             .await
             .map_err(|e| anyhow!("HTTP request failed: {}", e))?;
 
         if !response.status().is_success() {
-            let error_text = response.text().await
+            let error_text = response
+                .text()
+                .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(anyhow!("Jupiter API error: {}", error_text));
         }
 
-        let route_map_response = response.json::<IndexedRouteMap>().await
+        let route_map_response = response
+            .json::<IndexedRouteMap>()
+            .await
             .map_err(|e| anyhow!("Failed to parse route map response: {}", e))?;
 
         let mint_keys = route_map_response.mint_keys;
@@ -209,7 +224,8 @@ impl TokenService {
         for (from_index, to_indices) in route_map_response.indexed_route_map {
             if from_index < mint_keys.len() {
                 let from_mint = mint_keys[from_index].clone();
-                let to_mints: Vec<String> = to_indices.into_iter()
+                let to_mints: Vec<String> = to_indices
+                    .into_iter()
                     .filter_map(|i| {
                         if i < mint_keys.len() {
                             Some(mint_keys[i].clone())
@@ -233,19 +249,25 @@ impl TokenService {
             None => format!("{}/price", price_api_url()),
         };
 
-        let response = self.http_client.get(&url)
+        let response = self
+            .http_client
+            .get(&url)
             .send()
             .await
             .map_err(|e| anyhow!("HTTP request failed: {}", e))?;
 
         if !response.status().is_success() {
-            let error_text = response.text().await
+            let error_text = response
+                .text()
+                .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(anyhow!("Jupiter API error: {}", error_text));
         }
 
         // Парсим JSON ответ
-        let price_data: HashMap<String, f64> = response.json().await
+        let price_data: HashMap<String, f64> = response
+            .json()
+            .await
             .map_err(|e| anyhow!("Failed to parse prices response: {}", e))?;
 
         Ok(price_data)

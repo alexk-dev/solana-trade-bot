@@ -1,15 +1,14 @@
 use anyhow::{anyhow, Result};
-use usvg::{Tree, Options};
+use png;
 use resvg::render;
 use tiny_skia::Pixmap;
-use png;
+use usvg::{Options, Tree};
 
 /// Конвертирует SVG (в виде байтов) в PNG (возвращает Vec<u8> с PNG-данными).
 pub fn convert_svg_to_png(svg_data: &[u8]) -> Result<Vec<u8>> {
     // 1) Парсим SVG с помощью usvg
     let opt = Options::default();
-    let tree = Tree::from_data(svg_data, &opt)
-        .map_err(|e| anyhow!("Error parsing SVG: {}", e))?;
+    let tree = Tree::from_data(svg_data, &opt).map_err(|e| anyhow!("Error parsing SVG: {}", e))?;
 
     // 2) Получаем размеры SVG из корневого узла
     let svg_size = tree.size();
@@ -17,8 +16,8 @@ pub fn convert_svg_to_png(svg_data: &[u8]) -> Result<Vec<u8>> {
     let height = svg_size.height() as u32;
 
     // 3) Создаём Pixmap нужного размера
-    let mut pixmap = Pixmap::new(width, height)
-        .ok_or_else(|| anyhow!("Failed to create Pixmap"))?;
+    let mut pixmap =
+        Pixmap::new(width, height).ok_or_else(|| anyhow!("Failed to create Pixmap"))?;
 
     // 4) Рендерим SVG в Pixmap с использованием FitTo::Original
     render(&tree, tiny_skia::Transform::default(), &mut pixmap.as_mut());

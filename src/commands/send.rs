@@ -1,15 +1,15 @@
 // src/commands/send.rs
 use anyhow::Result;
-use log::{info, error};
-use sqlx::PgPool;
+use log::{error, info};
 use solana_client::nonblocking::rpc_client::RpcClient;
+use sqlx::PgPool;
 use std::sync::Arc;
 use teloxide::prelude::*;
 
-use crate::{db, solana, utils};
+use super::CommandHandler;
 use crate::model::State;
 use crate::MyDialogue;
-use super::CommandHandler;
+use crate::{db, solana, utils};
 
 pub struct SendCommand;
 
@@ -27,13 +27,14 @@ impl CommandHandler for SendCommand {
         msg: Message,
         dialogue: Option<MyDialogue>,
         _db_pool: Option<PgPool>,
-        _solana_client: Option<Arc<RpcClient>>
+        _solana_client: Option<Arc<RpcClient>>,
     ) -> Result<()> {
         let dialogue = dialogue.ok_or_else(|| anyhow::anyhow!("Dialogue context not provided"))?;
         info!("Send command initiated");
 
         dialogue.update(State::AwaitingRecipientAddress).await?;
-        bot.send_message(msg.chat.id, "Введите Solana-адрес получателя:").await?;
+        bot.send_message(msg.chat.id, "Введите Solana-адрес получателя:")
+            .await?;
 
         Ok(())
     }
@@ -43,23 +44,30 @@ pub async fn receive_recipient_address(bot: Bot, msg: Message, dialogue: MyDialo
     if let Some(address_text) = msg.text() {
         // Validate the address format
         if utils::validate_solana_address(address_text) {
-            dialogue.update(State::AwaitingAmount { recipient: address_text.to_string() }).await?;
+            dialogue
+                .update(State::AwaitingAmount {
+                    recipient: address_text.to_string(),
+                })
+                .await?;
 
             bot.send_message(
                 msg.chat.id,
-                "Введите сумму для отправки (например: 0.5 SOL или 100 USDC):"
-            ).await?;
+                "Введите сумму для отправки (например: 0.5 SOL или 100 USDC):",
+            )
+            .await?;
         } else {
             bot.send_message(
                 msg.chat.id,
-                "Некорректный Solana-адрес. Пожалуйста, проверьте адрес и попробуйте снова:"
-            ).await?;
+                "Некорректный Solana-адрес. Пожалуйста, проверьте адрес и попробуйте снова:",
+            )
+            .await?;
         }
     } else {
         bot.send_message(
             msg.chat.id,
-            "Пожалуйста, введите текстовый адрес получателя:"
-        ).await?;
+            "Пожалуйста, введите текстовый адрес получателя:",
+        )
+        .await?;
     }
 
     Ok(())
@@ -69,25 +77,28 @@ pub async fn receive_amount(
     bot: Bot,
     msg: Message,
     state: State,
-    dialogue: MyDialogue
+    dialogue: MyDialogue,
 ) -> Result<()> {
     if let State::AwaitingAmount { recipient } = state {
         if let Some(amount_text) = msg.text() {
             // Parse amount and token from the input
             if let Some((amount, token)) = utils::parse_amount_and_token(amount_text) {
-                dialogue.update(State::AwaitingConfirmation {
-                    recipient: recipient.clone(),
-                    amount,
-                    token: token.to_string()
-                }).await?;
+                dialogue
+                    .update(State::AwaitingConfirmation {
+                        recipient: recipient.clone(),
+                        amount,
+                        token: token.to_string(),
+                    })
+                    .await?;
 
                 bot.send_message(
                     msg.chat.id,
                     format!(
                         "Подтвердите отправку {} {} на адрес {} (да/нет):",
                         amount, token, recipient
-                    )
-                ).await?;
+                    ),
+                )
+                .await?;
             } else {
                 bot.send_message(
                     msg.chat.id,
@@ -95,10 +106,8 @@ pub async fn receive_amount(
                 ).await?;
             }
         } else {
-            bot.send_message(
-                msg.chat.id,
-                "Пожалуйста, введите сумму для отправки:"
-            ).await?;
+            bot.send_message(msg.chat.id, "Пожалуйста, введите сумму для отправки:")
+                .await?;
         }
     }
 
@@ -111,9 +120,14 @@ pub async fn receive_confirmation(
     state: State,
     dialogue: MyDialogue,
     db_pool: PgPool,
-    solana_client: Arc<RpcClient>
+    solana_client: Arc<RpcClient>,
 ) -> Result<()> {
-    if let State::AwaitingConfirmation { recipient, amount, token } = state {
+    if let State::AwaitingConfirmation {
+        recipient,
+        amount,
+        token,
+    } = state
+    {
         if let Some(text) = msg.text() {
             let confirmation = text.to_lowercase();
 
@@ -124,10 +138,9 @@ pub async fn receive_confirmation(
                 dialogue.update(State::Start).await?;
 
                 // Send "processing" message
-                let processing_msg = bot.send_message(
-                    msg.chat.id,
-                    "Отправка средств... Пожалуйста, подождите."
-                ).await?;
+                let processing_msg = bot
+                    .send_message(msg.chat.id, "Отправка средств... Пожалуйста, подождите.")
+                    .await?;
 
                 // Get user wallet info
                 let user = db::get_user_by_telegram_id(&db_pool, telegram_id).await?;
@@ -140,20 +153,16 @@ pub async fn receive_confirmation(
 
                             // Send transaction
                             let result = if token.to_uppercase() == "SOL" {
-                                solana::send_sol(
-                                    &solana_client,
-                                    &keypair,
-                                    &recipient,
-                                    amount
-                                ).await
+                                solana::send_sol(&solana_client, &keypair, &recipient, amount).await
                             } else {
                                 solana::send_spl_token(
                                     &solana_client,
                                     &keypair,
                                     &recipient,
                                     &token,
-                                    amount
-                                ).await
+                                    amount,
+                                )
+                                .await
                             };
 
                             match result {
@@ -166,16 +175,21 @@ pub async fn receive_confirmation(
                                         amount,
                                         &token,
                                         &Some(signature.clone()),
-                                        "SUCCESS"
-                                    ).await?;
+                                        "SUCCESS",
+                                    )
+                                    .await?;
 
                                     // Send success message
                                     bot.edit_message_text(
                                         msg.chat.id,
                                         processing_msg.id,
-                                        format!("✅ Средства отправлены. Tx Signature: {}", signature)
-                                    ).await?;
-                                },
+                                        format!(
+                                            "✅ Средства отправлены. Tx Signature: {}",
+                                            signature
+                                        ),
+                                    )
+                                    .await?;
+                                }
                                 Err(e) => {
                                     error!("Failed to send transaction: {}", e);
 
@@ -187,25 +201,28 @@ pub async fn receive_confirmation(
                                         amount,
                                         &token,
                                         &None::<String>,
-                                        "FAILED"
-                                    ).await?;
+                                        "FAILED",
+                                    )
+                                    .await?;
 
                                     // Send error message
                                     bot.edit_message_text(
                                         msg.chat.id,
                                         processing_msg.id,
-                                        format!("❌ Ошибка при отправке средств: {}", e)
-                                    ).await?;
+                                        format!("❌ Ошибка при отправке средств: {}", e),
+                                    )
+                                    .await?;
                                 }
                             }
                         } else {
                             bot.edit_message_text(
                                 msg.chat.id,
                                 processing_msg.id,
-                                "❌ Ошибка: Не найден закрытый ключ для вашего кошелька."
-                            ).await?;
+                                "❌ Ошибка: Не найден закрытый ключ для вашего кошелька.",
+                            )
+                            .await?;
                         }
-                    },
+                    }
                     None => {
                         bot.edit_message_text(
                             msg.chat.id,
@@ -218,10 +235,8 @@ pub async fn receive_confirmation(
                 // Transaction cancelled
                 dialogue.update(State::Start).await?;
 
-                bot.send_message(
-                    msg.chat.id,
-                    "Отправка средств отменена."
-                ).await?;
+                bot.send_message(msg.chat.id, "Отправка средств отменена.")
+                    .await?;
             }
         }
     }

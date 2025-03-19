@@ -1,10 +1,10 @@
-use anyhow::{Result, anyhow};
-use std::str::FromStr;
-use log::debug;
-use qrcode::{QrCode, render::svg};
-use solana_sdk::pubkey::Pubkey;
-use regex::Regex;
+use anyhow::{anyhow, Result};
 use lazy_static::lazy_static;
+use log::debug;
+use qrcode::{render::svg, QrCode};
+use regex::Regex;
+use solana_sdk::pubkey::Pubkey;
+use std::str::FromStr;
 
 // Generate QR code for a Solana address
 pub fn generate_qr_code(address: &str) -> Result<Vec<u8>> {
@@ -13,7 +13,8 @@ pub fn generate_qr_code(address: &str) -> Result<Vec<u8>> {
         .map_err(|e| anyhow!("Failed to generate QR code: {}", e))?;
 
     // Render QR code as SVG with modern API
-    let svg_string = code.render()
+    let svg_string = code
+        .render()
         .min_dimensions(200, 200)
         .dark_color(svg::Color("#000000"))
         .light_color(svg::Color("#ffffff"))
@@ -47,9 +48,9 @@ pub fn parse_amount_and_token(input: &str) -> Option<(f64, &str)> {
 // Format amount with appropriate precision
 pub fn format_amount(amount: f64, token: &str) -> String {
     match token.to_uppercase().as_str() {
-        "SOL" => format!("{:.9}", amount), // 9 decimals
+        "SOL" => format!("{:.9}", amount),           // 9 decimals
         "USDC" | "USDT" => format!("{:.6}", amount), // 6 decimals
-        _ => format!("{:.6}", amount), // Default to 6 decimals
+        _ => format!("{:.6}", amount),               // Default to 6 decimals
     }
 }
 
@@ -58,7 +59,7 @@ pub fn validate_swap_params(
     amount: f64,
     source_token: &str,
     target_token: &str,
-    slippage_percent: Option<f64>
+    slippage_percent: Option<f64>,
 ) -> Result<(f64, String, String, f64)> {
     // Validate amount
     if amount <= 0.0 {
@@ -83,13 +84,17 @@ pub fn validate_swap_params(
     // Normalize slippage (default 0.5%)
     let slippage = slippage_percent.unwrap_or(0.5).max(0.1).min(5.0) / 100.0;
 
-    Ok((amount, source_token.to_string(), target_token.to_string(), slippage))
+    Ok((
+        amount,
+        source_token.to_string(),
+        target_token.to_string(),
+        slippage,
+    ))
 }
 
 // Parse Solana address and convert to pubkey
 pub fn parse_solana_address(address: &str) -> Result<Pubkey> {
-    Pubkey::from_str(address)
-        .map_err(|_| anyhow!("Invalid Solana address format"))
+    Pubkey::from_str(address).map_err(|_| anyhow!("Invalid Solana address format"))
 }
 
 // Shorten address for display

@@ -1,26 +1,21 @@
 use std::collections::HashMap;
 // src/solana/jupiter/swap_service.rs
+use anyhow::{anyhow, Result};
+use log::{debug, error, info};
+use reqwest::Client;
+use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 use std::env;
 use std::str::FromStr;
-use anyhow::{anyhow, Result};
-use log::{info, debug, error};
-use solana_client::nonblocking::rpc_client::RpcClient;
-use solana_sdk::{
-    signature::Keypair,
-    pubkey::Pubkey,
-};
 use std::sync::Arc;
-use reqwest::Client;
 
+use crate::solana::jupiter::{models::TokenPrice, SwapRequest, TokenService};
 use jupiter_swap_api_client::{
-    quote::QuoteRequest,
-    swap::SwapRequest as JupiterSwapRequest,
-    transaction_config::TransactionConfig,
-    JupiterSwapApiClient,
+    quote::QuoteRequest, swap::SwapRequest as JupiterSwapRequest,
+    transaction_config::TransactionConfig, JupiterSwapApiClient,
 };
 use solana_sdk::signature::NullSigner;
 use solana_sdk::transaction::VersionedTransaction;
-use crate::solana::jupiter::{models::TokenPrice, SwapRequest, TokenService};
 
 /// Сервис для выполнения операций свопа с использованием Jupiter
 pub struct SwapService {
@@ -48,7 +43,11 @@ impl SwapService {
         slippage: f64,
     ) -> Result<jupiter_swap_api_client::quote::QuoteResponse> {
         // Получаем информацию о токенах для определения decimals
-        let source_token_info = self.token_service.token_repository.get_token_by_id(source_token).await?;
+        let source_token_info = self
+            .token_service
+            .token_repository
+            .get_token_by_id(source_token)
+            .await?;
 
         // Конвертируем amount с учетом decimals
         let decimals = source_token_info.decimals as u32;
@@ -76,11 +75,16 @@ impl SwapService {
         debug!("Requesting quote with parameters: {:?}", quote_request);
 
         // Отправляем запрос через SDK
-        let quote_response = self.jupiter_client.quote(&quote_request).await
+        let quote_response = self
+            .jupiter_client
+            .quote(&quote_request)
+            .await
             .map_err(|e| anyhow!("Failed to get quote from Jupiter API: {}", e))?;
 
-        info!("Quote received successfully: input_amount={}, output_amount={}",
-             quote_response.in_amount, quote_response.out_amount);
+        info!(
+            "Quote received successfully: input_amount={}, output_amount={}",
+            quote_response.in_amount, quote_response.out_amount
+        );
 
         Ok(quote_response)
     }
@@ -95,8 +99,13 @@ impl SwapService {
         user_public_key: &str,
     ) -> Result<jupiter_swap_api_client::swap::SwapResponse> {
         // Получаем котировку
-        debug!("Getting swap quote for {} {} to {}", amount, source_token, target_token);
-        let quote_response = self.get_swap_quote(amount, source_token, target_token, slippage).await?;
+        debug!(
+            "Getting swap quote for {} {} to {}",
+            amount, source_token, target_token
+        );
+        let quote_response = self
+            .get_swap_quote(amount, source_token, target_token, slippage)
+            .await?;
 
         // Парсим pubkey пользователя
         let user_pubkey = Pubkey::from_str(user_public_key)
@@ -109,13 +118,22 @@ impl SwapService {
             config: TransactionConfig::default(),
         };
 
-        debug!("Requesting swap transaction with user_public_key: {}", user_public_key);
+        debug!(
+            "Requesting swap transaction with user_public_key: {}",
+            user_public_key
+        );
 
         // Получаем транзакцию свопа через SDK
-        let swap_response = self.jupiter_client.swap(&swap_request, Some(HashMap::new())).await
+        let swap_response = self
+            .jupiter_client
+            .swap(&swap_request, Some(HashMap::new()))
+            .await
             .map_err(|e| anyhow!("Failed to get swap transaction: {}", e))?;
 
-        info!("Swap transaction received: tx_length={}", swap_response.swap_transaction.len());
+        info!(
+            "Swap transaction received: tx_length={}",
+            swap_response.swap_transaction.len()
+        );
 
         Ok(swap_response)
     }
@@ -125,7 +143,7 @@ impl SwapService {
         &self,
         solana_client: &Arc<RpcClient>,
         keypair: &Keypair,
-        swap_response: &jupiter_swap_api_client::swap::SwapResponse
+        swap_response: &jupiter_swap_api_client::swap::SwapResponse,
     ) -> Result<String> {
         info!("Executing swap transaction");
 
@@ -198,7 +216,9 @@ impl SwapService {
         user_public_key: &str,
     ) -> Result<jupiter_swap_api_client::swap::SwapInstructionsResponse> {
         // Получаем котировку
-        let quote_response = self.get_swap_quote(amount, source_token, target_token, slippage).await?;
+        let quote_response = self
+            .get_swap_quote(amount, source_token, target_token, slippage)
+            .await?;
 
         // Парсим pubkey пользователя
         let user_pubkey = Pubkey::from_str(user_public_key)
@@ -212,7 +232,10 @@ impl SwapService {
         };
 
         // Получаем инструкции свопа через SDK
-        let swap_instructions = self.jupiter_client.swap_instructions(&swap_request).await
+        let swap_instructions = self
+            .jupiter_client
+            .swap_instructions(&swap_request)
+            .await
             .map_err(|e| anyhow!("Failed to get swap instructions: {}", e))?;
 
         Ok(swap_instructions)

@@ -1,12 +1,12 @@
 // src/commands/help.rs
 use anyhow::Result;
-use sqlx::PgPool;
 use solana_client::nonblocking::rpc_client::RpcClient;
+use sqlx::PgPool;
 use std::sync::Arc;
 use teloxide::prelude::*;
 
-use crate::MyDialogue;
 use super::CommandHandler;
+use crate::MyDialogue;
 
 pub struct HelpCommand;
 
@@ -24,7 +24,7 @@ impl CommandHandler for HelpCommand {
         msg: Message,
         _dialogue: Option<MyDialogue>,
         _db_pool: Option<PgPool>,
-        _solana_client: Option<Arc<RpcClient>>
+        _solana_client: Option<Arc<RpcClient>>,
     ) -> Result<()> {
         bot.send_message(
             msg.chat.id,

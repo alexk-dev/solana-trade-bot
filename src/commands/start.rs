@@ -1,14 +1,14 @@
 // src/commands/start.rs
 use anyhow::Result;
 use log::info;
-use sqlx::PgPool;
 use solana_client::nonblocking::rpc_client::RpcClient;
+use sqlx::PgPool;
 use std::sync::Arc;
 use teloxide::{prelude::*, types::ParseMode};
 
+use super::CommandHandler;
 use crate::db;
 use crate::MyDialogue;
-use super::CommandHandler;
 
 pub struct StartCommand;
 
@@ -26,7 +26,7 @@ impl CommandHandler for StartCommand {
         msg: Message,
         _dialogue: Option<MyDialogue>,
         db_pool: Option<PgPool>,
-        _solana_client: Option<Arc<RpcClient>>
+        _solana_client: Option<Arc<RpcClient>>,
     ) -> Result<()> {
         let db_pool = db_pool.ok_or_else(|| anyhow::anyhow!("Database pool not provided"))?;
         let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
@@ -53,10 +53,10 @@ impl CommandHandler for StartCommand {
         } else {
             bot.send_message(
                 msg.chat.id,
-                "С возвращением! Используйте /help для просмотра доступных команд."
+                "С возвращением! Используйте /help для просмотра доступных команд.",
             )
-                .parse_mode(ParseMode::Markdown)
-                .await?;
+            .parse_mode(ParseMode::Markdown)
+            .await?;
         }
 
         Ok(())

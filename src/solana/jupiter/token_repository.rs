@@ -1,19 +1,18 @@
 // src/solana/jupiter/token_repository.rs
+use crate::solana::jupiter::models::Token;
+use crate::solana::jupiter::{JupiterToken, SOL_MINT, USDC_MINT};
 use anyhow::{anyhow, Result};
-use log::{info, warn, error};
+use log::{error, info, warn};
 use reqwest::Client;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::env;
 use std::sync::{Arc, Mutex};
 use teloxide::payloads::SendVenueSetters;
-use crate::solana::jupiter::{JupiterToken, SOL_MINT, USDC_MINT};
-use crate::solana::jupiter::models::Token;
 
 // Константа для API-эндпоинта
 fn token_list_url() -> String {
-    env::var("TOKEN_LIST_URL")
-        .unwrap_or_else(|_| "https://token.jup.ag/strict".to_string())
+    env::var("TOKEN_LIST_URL").unwrap_or_else(|_| "https://token.jup.ag/strict".to_string())
 }
 
 /// Репозиторий для работы с токенами
@@ -35,18 +34,24 @@ impl TokenRepository {
     pub async fn get_all_tokens(&self) -> Result<Vec<Token>> {
         let url = token_list_url();
 
-        let response = self.http_client.get(&url)
+        let response = self
+            .http_client
+            .get(&url)
             .send()
             .await
             .map_err(|e| anyhow!("HTTP request failed: {}", e))?;
 
         if !response.status().is_success() {
-            let error_text = response.text().await
+            let error_text = response
+                .text()
+                .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(anyhow!("Jupiter API error: {}", error_text));
         }
 
-        let tokens: Vec<Token> = response.json().await
+        let tokens: Vec<Token> = response
+            .json()
+            .await
             .map_err(|e| anyhow!("Failed to parse token list response: {}", e))?;
 
         // Обновляем кеш
@@ -65,15 +70,16 @@ impl TokenRepository {
         // Запрашиваем токен через API
         let url = format!("https://api.jup.ag/tokens/v1/token/{}", token_id);
 
-        let response = self.http_client.get(&url)
-            .send()
-            .await
-            .map_err(|e| {
-                error!("Failed to fetch token from Jupiter API: {}", e);
-                anyhow!("Failed to fetch token from API: {}", e)
-            })?;
+        let response = self.http_client.get(&url).send().await.map_err(|e| {
+            error!("Failed to fetch token from Jupiter API: {}", e);
+            anyhow!("Failed to fetch token from API: {}", e)
+        })?;
 
-        info!("Jupiter API response: {} for token {}", response.status(), token_id);
+        info!(
+            "Jupiter API response: {} for token {}",
+            response.status(),
+            token_id
+        );
         if !response.status().is_success() {
             // Если это SOL или USDC, вернем заглушку
             if token_id == SOL_MINT {
@@ -98,18 +104,19 @@ impl TokenRepository {
                 return Ok(usdc);
             }
 
-            let error_text = response.text().await
+            let error_text = response
+                .text()
+                .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
             error!("Jupiter API error [get_token_by_id]: {}", error_text);
             return Err(anyhow!("Jupiter API error: {}", error_text));
         }
 
         // Парсим ответ
-        let jupiter_token: JupiterToken = response.json().await
-            .map_err(|e| {
-                error!("Failed to parse token response: {}", e);
-                anyhow!("Failed to parse token response: {}", e)
-            })?;
+        let jupiter_token: JupiterToken = response.json().await.map_err(|e| {
+            error!("Failed to parse token response: {}", e);
+            anyhow!("Failed to parse token response: {}", e)
+        })?;
 
         // Преобразуем в наш формат токена
         let token = Token {

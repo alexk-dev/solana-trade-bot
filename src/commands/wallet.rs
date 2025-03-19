@@ -1,14 +1,17 @@
 // src/commands/wallet.rs
 use anyhow::Result;
 use log::info;
-use sqlx::PgPool;
 use solana_client::nonblocking::rpc_client::RpcClient;
+use sqlx::PgPool;
 use std::sync::Arc;
-use teloxide::{prelude::*, types::{ParseMode, InputFile}};
+use teloxide::{
+    prelude::*,
+    types::{InputFile, ParseMode},
+};
 
-use crate::{db, solana, utils, qrcodeutils};
-use crate::MyDialogue;
 use super::CommandHandler;
+use crate::MyDialogue;
+use crate::{db, qrcodeutils, solana, utils};
 
 pub struct CreateWalletCommand;
 
@@ -26,12 +29,15 @@ impl CommandHandler for CreateWalletCommand {
         msg: Message,
         _dialogue: Option<MyDialogue>,
         db_pool: Option<PgPool>,
-        _solana_client: Option<Arc<RpcClient>>
+        _solana_client: Option<Arc<RpcClient>>,
     ) -> Result<()> {
         let db_pool = db_pool.ok_or_else(|| anyhow::anyhow!("Database pool not provided"))?;
         let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
 
-        info!("Create wallet command received from Telegram ID: {}", telegram_id);
+        info!(
+            "Create wallet command received from Telegram ID: {}",
+            telegram_id
+        );
 
         // Check if user already has a wallet
         let user = db::get_user_by_telegram_id(&db_pool, telegram_id)
@@ -65,10 +71,10 @@ impl CommandHandler for CreateWalletCommand {
                 Мнемоническая фраза: `{}`\n\n\
                 *Важно:* Сохраните мнемоническую фразу – она нужна для восстановления доступа!",
                 address, mnemonic
-            )
+            ),
         )
-            .parse_mode(ParseMode::Markdown)
-            .await?;
+        .parse_mode(ParseMode::Markdown)
+        .await?;
 
         Ok(())
     }
@@ -90,7 +96,7 @@ impl CommandHandler for AddressCommand {
         msg: Message,
         _dialogue: Option<MyDialogue>,
         db_pool: Option<PgPool>,
-        _solana_client: Option<Arc<RpcClient>>
+        _solana_client: Option<Arc<RpcClient>>,
     ) -> Result<()> {
         let db_pool = db_pool.ok_or_else(|| anyhow::anyhow!("Database pool not provided"))?;
         let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
@@ -109,27 +115,26 @@ impl CommandHandler for AddressCommand {
             // Send address to user
             bot.send_message(
                 msg.chat.id,
-                format!("Адрес вашего Solana-кошелька:\n\n`{}`", address)
+                format!("Адрес вашего Solana-кошелька:\n\n`{}`", address),
             )
-                .parse_mode(ParseMode::Markdown)
-                .await?;
+            .parse_mode(ParseMode::Markdown)
+            .await?;
 
             // Send QR code as photo
             let png_data: Vec<u8> = qrcodeutils::convert_svg_to_png(&qr_svg_data)?;
 
             bot.send_photo(
                 msg.chat.id,
-                InputFile::memory(png_data).file_name("address.png")
+                InputFile::memory(png_data).file_name("address.png"),
             )
-                .caption("QR-код для вашего адреса")
-                .await?;
-
+            .caption("QR-код для вашего адреса")
+            .await?;
         } else {
             bot.send_message(
                 msg.chat.id,
-                "У вас еще нет кошелька. Используйте /create_wallet чтобы создать новый кошелек."
+                "У вас еще нет кошелька. Используйте /create_wallet чтобы создать новый кошелек.",
             )
-                .await?;
+            .await?;
         }
 
         Ok(())

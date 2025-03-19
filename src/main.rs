@@ -1,17 +1,17 @@
-use tokio;
 use dotenv::dotenv;
 use env_logger;
-use teloxide::{prelude::*, Bot};
+use log::{error, info};
+use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::env;
-use log::{info, error};
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use teloxide::{prelude::*, Bot};
+use tokio;
 
 mod commands;
 mod db;
-mod solana;
-mod utils;
 mod model;
 mod qrcodeutils;
+mod solana;
+mod utils;
 
 use teloxide::dispatching::dialogue::InMemStorage;
 
@@ -30,8 +30,8 @@ async fn main() -> anyhow::Result<()> {
         .expect("TELEGRAM_BOT_TOKEN must be set in environment variables");
     let bot = Bot::new(bot_token);
 
-    let database_url = env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set in environment variables");
+    let database_url =
+        env::var("DATABASE_URL").expect("DATABASE_URL must be set in environment variables");
     let db_pool = PgPoolOptions::new()
         .max_connections(10)
         .connect(&database_url)
@@ -48,10 +48,10 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let solana_rpc_url = env::var("SOLANA_RPC_URL")
-        .expect("SOLANA_RPC_URL must be set in environment variables");
-    let solana_client = solana::create_solana_client(&solana_rpc_url)
-        .expect("Failed to create Solana client");
+    let solana_rpc_url =
+        env::var("SOLANA_RPC_URL").expect("SOLANA_RPC_URL must be set in environment variables");
+    let solana_client =
+        solana::create_solana_client(&solana_rpc_url).expect("Failed to create Solana client");
 
     // In-memory storage (could replace with persistent storage if needed)
     let storage = InMemStorage::<model::State>::new();

@@ -1,42 +1,31 @@
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
+use base64::{engine::general_purpose, Engine as _};
 use log::error;
 use solana_account_decoder::{UiAccount, UiAccountData};
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_client::rpc_request::TokenAccountsFilter;
 use solana_client::rpc_response::RpcKeyedAccount;
-use solana_sdk::account::Account;            // <-- ВАЖНО: используем Account из sdk
+use solana_sdk::account::Account; // <-- ВАЖНО: используем Account из sdk
 use solana_sdk::pubkey::Pubkey;
-use base64::{engine::general_purpose, Engine as _};
 use solana_sdk::signature::{Keypair, Signer};
-use spl_token::{
-    ID as TOKEN_PROGRAM_ID,
-    instruction as token_instruction,
-};
 use spl_associated_token_account::{
-    get_associated_token_address,
-    instruction::create_associated_token_account_idempotent,
+    get_associated_token_address, instruction::create_associated_token_account_idempotent,
 };
+use spl_token::{instruction as token_instruction, ID as TOKEN_PROGRAM_ID};
 
 use crate::model::{BotError, TokenBalance};
-use crate::solana::wallet::parse_pubkey;
-use crate::solana::utils::{convert_to_token_amount, get_token_info_from_mint};
-use crate::solana::tokens::constants::{USDC_MINT, USDT_MINT, RAY_MINT};
+use crate::solana::tokens::constants::{RAY_MINT, USDC_MINT, USDT_MINT};
 use crate::solana::tokens::transaction::send_transaction;
+use crate::solana::utils::{convert_to_token_amount, get_token_info_from_mint};
+use crate::solana::wallet::parse_pubkey;
 
 /// Get token balances
-pub async fn get_token_balances(
-    client: &RpcClient,
-    address: &str
-) -> Result<Vec<TokenBalance>>
-{
+pub async fn get_token_balances(client: &RpcClient, address: &str) -> Result<Vec<TokenBalance>> {
     let pubkey: Pubkey = parse_pubkey(address)?;
 
     // 1) Список токен-аккаунтов возвращается в виде UiAccount
     let token_accounts: Vec<RpcKeyedAccount> = client
-        .get_token_accounts_by_owner(
-            &pubkey,
-            TokenAccountsFilter::ProgramId(spl_token::ID),
-        )
+        .get_token_accounts_by_owner(&pubkey, TokenAccountsFilter::ProgramId(spl_token::ID))
         .await
         .map_err(|e| anyhow!("Failed to get token accounts: {}", e))?;
 
@@ -49,11 +38,9 @@ pub async fn get_token_balances(
 
         // Попробуем раскодировать из base64 (потому что это UiAccount)
         let decoded_data: Vec<u8> = match ui_account_data {
-            UiAccountData::Binary(base64_str, _encoding) => {
-                general_purpose::STANDARD
-                    .decode(base64_str)
-                    .map_err(|e| anyhow!("Failed to decode base64: {}", e))?
-            },
+            UiAccountData::Binary(base64_str, _encoding) => general_purpose::STANDARD
+                .decode(base64_str)
+                .map_err(|e| anyhow!("Failed to decode base64: {}", e))?,
             _ => {
                 error!("Unsupported account data format");
                 continue;
@@ -114,7 +101,7 @@ pub async fn send_spl_token(
     keypair: &Keypair,
     recipient: &str,
     token_symbol: &str,
-    amount: f64
+    amount: f64,
 ) -> Result<String> {
     // Convert recipient string to pubkey
     let recipient_pubkey: Pubkey = parse_pubkey(recipient)?;
@@ -146,7 +133,9 @@ pub async fn send_spl_token(
             let token_account_amount: u64 = u64::from_le_bytes(account_data[64..72].try_into()?);
 
             // Get mint info
-            let mint_info: Account = client.get_account(&mint_pubkey).await
+            let mint_info: Account = client
+                .get_account(&mint_pubkey)
+                .await
                 .map_err(|e| anyhow!("Failed to get mint info: {}", e))?;
 
             // mint_info.data тоже Vec<u8>
@@ -167,10 +156,8 @@ pub async fn send_spl_token(
             }
 
             // Get or create recipient's associated token account
-            let recipient_token_account: Pubkey = get_associated_token_address(
-                &recipient_pubkey,
-                &mint_pubkey,
-            );
+            let recipient_token_account: Pubkey =
+                get_associated_token_address(&recipient_pubkey, &mint_pubkey);
 
             // Prepare instructions
             let mut instructions = Vec::new();
@@ -195,12 +182,12 @@ pub async fn send_spl_token(
                     &[&sender_pubkey],
                     token_amount,
                 )
-                    .map_err(|e| anyhow!("Failed to create token transfer instruction: {}", e))?
+                .map_err(|e| anyhow!("Failed to create token transfer instruction: {}", e))?,
             );
 
             // Execute transaction
             send_transaction(client, keypair, &instructions).await
-        },
+        }
         Err(_) => Err(anyhow!(
             "Sender doesn't have a token account for {}",
             token_symbol
@@ -212,7 +199,7 @@ pub async fn send_spl_token(
 pub async fn get_spl_token_balance(
     client: &RpcClient,
     address: &str,
-    token_symbol: &str
+    token_symbol: &str,
 ) -> Result<f64> {
     let balances: Vec<TokenBalance> = get_token_balances(client, address).await?;
 
