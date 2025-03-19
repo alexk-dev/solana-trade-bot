@@ -7969,6 +7969,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.22.1",
+ "bincode",
  "bip39",
  "bs58",
  "chrono",

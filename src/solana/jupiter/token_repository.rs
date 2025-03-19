@@ -1,74 +1,69 @@
-use std::collections::HashMap;
+// src/solana/jupiter/token_repository.rs
+use anyhow::{anyhow, Result};
 use log::{info, warn, error};
-use anyhow::{Result, anyhow};
-use serde::{Deserialize, Serialize};
-use crate::solana::jupiter::token::{Token, SOL_MINT, USDC_MINT};
+use reqwest::Client;
+use serde_json::Value;
+use std::collections::HashMap;
+use std::env;
+use std::sync::{Arc, Mutex};
+use teloxide::payloads::SendVenueSetters;
+use crate::solana::jupiter::{JupiterToken, SOL_MINT, USDC_MINT};
+use crate::solana::jupiter::models::Token;
 
-// Хранилище токенов, которое работает с API
+// Константа для API-эндпоинта
+fn token_list_url() -> String {
+    env::var("TOKEN_LIST_URL")
+        .unwrap_or_else(|_| "https://token.jup.ag/strict".to_string())
+}
+
+/// Репозиторий для работы с токенами
 pub struct TokenRepository {
-    http_client: reqwest::Client,
-    // Кэш для часто используемых токенов
-    cache: HashMap<String, Token>,
-    // Кэш для цен токенов
-    price_cache: HashMap<String, TokenPrice>,
-}
-
-#[derive(Debug, Deserialize)]
-struct JupiterToken {
-    address: String,
-    symbol: String,
-    name: String,
-    decimals: u8,
-    #[serde(rename = "logoURI")]
-    logo_uri: Option<String>,
-}
-
-// Структура для ответа API цен Jupiter
-#[derive(Debug, Deserialize)]
-struct JupiterPriceResponse {
-    data: HashMap<String, TokenData>,
-    #[serde(rename = "timeTaken")]
-    time_taken: f64,
-    #[serde(rename = "responseCode")]
-    response_code: i32,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct TokenData {
-    id: String,
-    #[serde(rename = "type")]
-    token_type: String,
-    price: f64,
-}
-
-// Структура для хранения цены токена
-#[derive(Debug, Clone)]
-pub struct TokenPrice {
-    pub id: String,
-    pub price: f64,
-    pub timestamp: u64,
+    pub http_client: Client,
+    token_cache: Arc<Mutex<HashMap<String, Token>>>,
 }
 
 impl TokenRepository {
+    /// Создает новый экземпляр репозитория
     pub fn new() -> Self {
         Self {
-            http_client: reqwest::Client::new(),
-            cache: HashMap::new(),
-            price_cache: HashMap::new(),
+            http_client: Client::new(),
+            token_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    // Получить токен по ID (mint адресу)
-    pub async fn get_token_by_id(&mut self, id: &str) -> Result<Token> {
-        info!("Getting token by ID: {}", id);
+    /// Получает список всех токенов
+    pub async fn get_all_tokens(&self) -> Result<Vec<Token>> {
+        let url = token_list_url();
 
-        // Проверяем кэш
-        if let Some(token) = self.cache.get(id) {
-            return Ok(token.clone());
+        let response = self.http_client.get(&url)
+            .send()
+            .await
+            .map_err(|e| anyhow!("HTTP request failed: {}", e))?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(anyhow!("Jupiter API error: {}", error_text));
         }
 
+        let tokens: Vec<Token> = response.json().await
+            .map_err(|e| anyhow!("Failed to parse token list response: {}", e))?;
+
+        // Обновляем кеш
+        let mut cache = self.token_cache.lock().unwrap();
+        for token in &tokens {
+            cache.insert(token.id.clone(), token.clone());
+        }
+
+        Ok(tokens)
+    }
+
+    /// Получает информацию о токене по его ID
+    pub async fn get_token_by_id(&mut self, token_id: &str) -> Result<Token> {
+        info!("Getting token by ID: {}", token_id);
+
         // Запрашиваем токен через API
-        let url = format!("https://api.jup.ag/tokens/v1/token/{}", id);
+        let url = format!("https://api.jup.ag/tokens/v1/token/{}", token_id);
 
         let response = self.http_client.get(&url)
             .send()
@@ -78,10 +73,10 @@ impl TokenRepository {
                 anyhow!("Failed to fetch token from API: {}", e)
             })?;
 
-        info!("Jupiter API response: {} for token {}", response.status(), id);
+        info!("Jupiter API response: {} for token {}", response.status(), token_id);
         if !response.status().is_success() {
             // Если это SOL или USDC, вернем заглушку
-            if id == SOL_MINT {
+            if token_id == SOL_MINT {
                 let sol = Token {
                     id: SOL_MINT.to_string(),
                     symbol: "SOL".to_string(),
@@ -89,9 +84,9 @@ impl TokenRepository {
                     decimals: 9,
                     logo_uri: "".to_string(),
                 };
-                self.cache.insert(id.to_string(), sol.clone());
+
                 return Ok(sol);
-            } else if id == USDC_MINT {
+            } else if token_id == USDC_MINT {
                 let usdc = Token {
                     id: USDC_MINT.to_string(),
                     symbol: "USDC".to_string(),
@@ -99,7 +94,7 @@ impl TokenRepository {
                     decimals: 6,
                     logo_uri: "".to_string(),
                 };
-                self.cache.insert(id.to_string(), usdc.clone());
+
                 return Ok(usdc);
             }
 
@@ -125,118 +120,30 @@ impl TokenRepository {
             logo_uri: jupiter_token.logo_uri.unwrap_or_default(),
         };
 
-        // Кэшируем результат
-        self.cache.insert(id.to_string(), token.clone());
-
         Ok(token)
     }
 
-    // Получить символ токена по ID (mint)
-    pub async fn get_symbol_from_id(&mut self, id: &str) -> Result<String> {
-        let token = self.get_token_by_id(id).await?;
-        Ok(token.symbol)
-    }
-
-    // Получить цены для списка токенов
-    pub async fn get_prices(&mut self, token_ids: &[String]) -> Result<HashMap<String, TokenPrice>> {
-        if token_ids.is_empty() {
-            return Ok(HashMap::new());
-        }
-
-        // Составляем URL запроса с разделенными запятыми ID токенов
-        let ids_param = token_ids.join(",");
-        let url = format!("https://api.jup.ag/price/v2?ids={}", ids_param);
-
-        info!("Fetching prices for {} tokens: {}", token_ids.len(), url);
-
-        // Выполняем запрос
-        let response = self.http_client.get(&url)
-            .send()
-            .await
-            .map_err(|e| {
-                error!("Failed to fetch prices from Jupiter API: {}", e);
-                anyhow!("Failed to fetch prices from API: {}", e)
-            })?;
-
-        if !response.status().is_success() {
-            let error_text = response.text().await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            error!("Jupiter API error [get_prices]: {}", error_text);
-            return Err(anyhow!("Jupiter API error: {}", error_text));
-        }
-
-        // Парсим ответ
-        let price_response: JupiterPriceResponse = response.json().await
-            .map_err(|e| {
-                error!("Failed to parse price response: {}", e);
-                anyhow!("Failed to parse price response: {}", e)
-            })?;
-
-        // Проверяем код ответа
-        if price_response.response_code != 200 {
-            return Err(anyhow!(
-                "Jupiter API returned non-OK response code: {}",
-                price_response.response_code
-            ));
-        }
-
-        // Текущее время для метки времени кэширования
-        let current_time = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-
-        // Преобразуем ответ в наш формат и обновляем кэш
-        let mut result = HashMap::new();
-        for (id, token_data) in price_response.data {
-            let price = TokenPrice {
-                id: token_data.id.clone(),
-                price: token_data.price,
-                timestamp: current_time,
-            };
-
-            // Обновляем кэш цен
-            self.price_cache.insert(token_data.id.clone(), price.clone());
-
-            // Добавляем в результат
-            result.insert(id, price);
-        }
-
-        Ok(result)
-    }
-
-    // Получить цену для одного токена
-    pub async fn get_price(&mut self, token_id: &str) -> Result<TokenPrice> {
-        // Проверяем кэш
-        if let Some(price) = self.price_cache.get(token_id) {
-            // Проверяем, не устарела ли цена (старше 5 минут)
-            let current_time = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-
-            if current_time - price.timestamp < 300 { // 5 минут = 300 секунд
-                return Ok(price.clone());
+    /// Поиск токена по символу
+    pub async fn find_token_by_symbol(&self, symbol: &str) -> Result<Token> {
+        // Пытаемся найти в кеше
+        {
+            let cache = self.token_cache.lock().unwrap();
+            for token in cache.values() {
+                if token.symbol.to_uppercase() == symbol.to_uppercase() {
+                    return Ok(token.clone());
+                }
             }
         }
 
-        // Если кэша нет или он устарел, запрашиваем новую цену
-        let prices = self.get_prices(&[token_id.to_string()]).await?;
+        // Если не в кеше, запрашиваем все токены
+        let tokens = self.get_all_tokens().await?;
 
-        if let Some(price) = prices.get(token_id) {
-            Ok(price.clone())
-        } else {
-            Err(anyhow!("Price for token {} not found", token_id))
+        for token in &tokens {
+            if token.symbol.to_uppercase() == symbol.to_uppercase() {
+                return Ok(token.clone());
+            }
         }
-    }
 
-    // Очистить кэш цен
-    pub fn clear_price_cache(&mut self) {
-        self.price_cache.clear();
-    }
-
-    // Очистить кэш токенов
-    pub fn clear_token_cache(&mut self) {
-        self.cache.clear();
+        Err(anyhow!("Token not found: {}", symbol))
     }
 }

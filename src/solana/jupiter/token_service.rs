@@ -1,12 +1,13 @@
+// src/solana/jupiter/token_service.rs
 use anyhow::{anyhow, Result};
-use serde::{Deserialize, Serialize};
+use log::{info, debug};
 use std::collections::HashMap;
 use std::env;
-use std::fmt;
-use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
+use reqwest::Client;
+use serde::Deserialize;
 
-use crate::solana::jupiter::token::{Token, TokenPrice, SOL_MINT, USDC_MINT};
+use crate::solana::jupiter::models::*;
 use crate::solana::jupiter::token_repository::TokenRepository;
 
 // Константы для API-эндпоинтов
@@ -18,200 +19,6 @@ fn price_api_url() -> String {
     env::var("PRICE_API_URL").unwrap_or_else(|_| "https://price.jup.ag/v1".to_string())
 }
 
-// Режимы обмена (точное входное или выходное количество)
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub enum SwapMode {
-    #[default]
-    ExactIn,
-    ExactOut,
-}
-
-impl FromStr for SwapMode {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        match s {
-            "ExactIn" => Ok(Self::ExactIn),
-            "ExactOut" => Ok(Self::ExactOut),
-            _ => Err(anyhow!("Parse SwapMode error: Invalid value '{}'", s)),
-        }
-    }
-}
-
-impl fmt::Display for SwapMode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Self::ExactIn => write!(f, "ExactIn"),
-            Self::ExactOut => write!(f, "ExactOut"),
-        }
-    }
-}
-
-// Конфигурация для получения котировки
-#[derive(Default, Debug, Clone)]
-pub struct QuoteParams {
-    pub input_mint: String,
-    pub output_mint: String,
-    pub amount: u64,
-    pub slippage_bps: u64,
-    pub only_direct_routes: Option<bool>,
-    pub exclude_dexes: Option<Vec<String>>,
-    pub max_accounts: Option<u64>,
-}
-
-// Ответ API с котировкой
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct QuoteResponse {
-    pub input_mint: String,
-    pub output_mint: String,
-    pub in_amount: String,
-    pub out_amount: String,
-    pub other_amount_threshold: String,
-    pub swap_mode: String,
-    pub slippage_bps: u64,
-    #[serde(with = "string_or_float")]
-    pub price_impact_pct: f64,
-    pub route_plan: Vec<RoutePlan>,
-    pub context_slot: Option<u64>,
-    pub time_taken: Option<f64>,
-}
-
-
-mod string_or_float {
-    use serde::{self, Deserialize, Deserializer, Serializer};
-    use std::fmt;
-
-    pub fn serialize<S>(value: &f64, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_f64(*value)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<f64, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct StringOrFloat;
-
-        impl<'de> serde::de::Visitor<'de> for StringOrFloat {
-            type Value = f64;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a float or a string containing a float")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                value.parse::<f64>().map_err(serde::de::Error::custom)
-            }
-
-            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                self.visit_str(&value)
-            }
-
-            fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(value)
-            }
-
-            fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(value as f64)
-            }
-
-            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(value as f64)
-            }
-        }
-
-        deserializer.deserialize_any(StringOrFloat)
-    }
-}
-
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RoutePlan {
-    pub swap_info: SwapInfo,
-    pub percent: u8,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SwapInfo {
-    pub amm_key: String,
-    pub label: Option<String>,
-    pub input_mint: String,
-    pub output_mint: String,
-    pub in_amount: String,
-    pub out_amount: String,
-    pub fee_amount: String,
-    pub fee_mint: String,
-}
-
-// Приоритизация комиссий
-#[derive(Debug, Clone)]
-pub enum PrioritizationFeeLamports {
-    Auto,
-    Exact { lamports: u64 },
-}
-
-// Запрос на выполнение свопа
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SwapRequest {
-    pub user_public_key: String,
-    pub wrap_and_unwrap_sol: Option<bool>,
-    pub use_shared_accounts: Option<bool>,
-    pub fee_account: Option<String>,
-    pub prioritization_fee_lamports: PrioritizationFeeLamportsWrapper,
-    pub as_legacy_transaction: Option<bool>,
-    pub use_token_ledger: Option<bool>,
-    pub destination_token_account: Option<String>,
-    pub quote_response: QuoteResponse,
-}
-
-// Обертка для сериализации PrioritizationFeeLamports
-#[derive(Debug, Clone, Serialize)]
-#[serde(untagged)]
-pub enum PrioritizationFeeLamportsWrapper {
-    Auto { auto: bool },
-    Exact { lamports: u64 },
-}
-
-impl From<PrioritizationFeeLamports> for PrioritizationFeeLamportsWrapper {
-    fn from(fee: PrioritizationFeeLamports) -> Self {
-        match fee {
-            PrioritizationFeeLamports::Auto => PrioritizationFeeLamportsWrapper::Auto { auto: true },
-            PrioritizationFeeLamports::Exact { lamports } => {
-                PrioritizationFeeLamportsWrapper::Exact { lamports }
-            }
-        }
-    }
-}
-
-// Ответ на запрос свопа
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SwapResponse {
-    pub swap_transaction: String,
-    pub last_valid_block_height: u64,
-}
-
 // Структура для обработки ошибок из Jupiter API
 #[derive(Deserialize)]
 struct ErrorResponse {
@@ -221,7 +28,7 @@ struct ErrorResponse {
 // Структура для работы с Jupiter и ценами токенов
 pub struct TokenService {
     pub token_repository: TokenRepository,
-    pub http_client: reqwest::Client,
+    pub http_client: Client,
     pub sol_usdc_price: f64, // Текущая цена SOL в USDC
 }
 
@@ -229,7 +36,7 @@ impl TokenService {
     pub fn new() -> Self {
         Self {
             token_repository: TokenRepository::new(),
-            http_client: reqwest::Client::new(),
+            http_client: Client::new(),
             sol_usdc_price: 0.0, // Будет обновлено при первом вызове refresh_sol_price
         }
     }
@@ -262,17 +69,17 @@ impl TokenService {
         }
     }
 
-    // Получить котировку свопа по ID токенов
+    // Получить котировку свопа по ID токенов (оставляем, так как используется для обновления цены SOL)
     pub async fn get_swap_quote(
         &mut self,
         amount: f64,
-        source_token_id: &str,
-        target_token_id: &str,
+        source_token: &str,
+        target_token: &str,
         slippage: f64,
     ) -> Result<QuoteResponse> {
         // Получаем информацию о токенах
-        let source_token = self.token_repository.get_token_by_id(source_token_id).await?;
-        let target_token = self.token_repository.get_token_by_id(target_token_id).await?;
+        let source_token = self.token_repository.get_token_by_id(source_token).await?;
+        let target_token = self.token_repository.get_token_by_id(target_token).await?;
 
         // Конвертируем amount с учетом decimals
         let decimals = source_token.decimals as u32;
@@ -285,8 +92,8 @@ impl TokenService {
         let url = format!(
             "{base_url}/quote?inputMint={input_mint}&outputMint={output_mint}&amount={amount}&onlyDirectRoutes=false&slippageBps={slippage_bps}",
             base_url = quote_api_url(),
-            input_mint = source_token_id,
-            output_mint = target_token_id,
+            input_mint = source_token.id,
+            output_mint = target_token.id,
             amount = amount_in,
             slippage_bps = slippage_bps,
         );
@@ -442,75 +249,5 @@ impl TokenService {
             .map_err(|e| anyhow!("Failed to parse prices response: {}", e))?;
 
         Ok(price_data)
-    }
-
-    // Создать запрос на выполнение свопа
-    pub fn create_swap_request(
-        &self,
-        quote: QuoteResponse,
-        user_public_key: &str,
-        destination_token_account: Option<&str>,
-    ) -> SwapRequest {
-        SwapRequest {
-            user_public_key: user_public_key.to_string(),
-            wrap_and_unwrap_sol: Some(true),
-            use_shared_accounts: Some(true),
-            fee_account: None,
-            prioritization_fee_lamports: PrioritizationFeeLamportsWrapper::Auto { auto: true },
-            as_legacy_transaction: Some(false),
-            use_token_ledger: Some(false),
-            destination_token_account: destination_token_account.map(|s| s.to_string()),
-            quote_response: quote,
-        }
-    }
-
-    // Получить инструкции для выполнения свопа
-    pub async fn get_swap_transaction(&self, swap_request: SwapRequest) -> Result<SwapResponse> {
-        let url = format!("{}/swap", quote_api_url());
-
-        let response = self.http_client.post(&url)
-            .header("Accept", "application/json")
-            .json(&swap_request)
-            .send()
-            .await
-            .map_err(|e| anyhow!("HTTP request failed: {}", e))?;
-
-        if !response.status().is_success() {
-            let error_text = response.text().await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(anyhow!("Jupiter API error: {}", error_text));
-        }
-
-        let json_value = response.json::<serde_json::Value>().await
-            .map_err(|e| anyhow!("Failed to parse response as JSON: {}", e))?;
-
-        // Проверяем на наличие ошибок в ответе API
-        let swap_response = self.check_for_api_error::<SwapResponse>(json_value)?;
-
-        Ok(swap_response)
-    }
-
-    // Выполнить свап (заглушка - реальная реализация требует подписывания транзакции)
-    pub async fn execute_swap(
-        &self,
-        quote: &QuoteResponse,
-        user_public_key: &str,
-    ) -> Result<String> {
-        // Здесь должна быть реальная логика выполнения свопа:
-        // 1. Создание запроса на свап
-        let swap_request = self.create_swap_request(quote.clone(), user_public_key, None);
-
-        // 2. Получение транзакции
-        let swap_response = self.get_swap_transaction(swap_request).await?;
-
-        // 3. Декодирование, подписание и отправка транзакции в сеть
-        // В реальном коде здесь бы была логика для:
-        //   - Декодирования base64 в VersionedTransaction
-        //   - Загрузки ключей пользователя
-        //   - Подписания транзакции
-        //   - Отправки в сеть Solana
-
-        // Возвращаем transaction_id (заглушка)
-        Ok(format!("This is a mock transaction ID: {}...", &swap_response.swap_transaction[0..16]))
     }
 }
