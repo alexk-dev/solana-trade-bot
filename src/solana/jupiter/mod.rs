@@ -1,5 +1,6 @@
 // src/solana/jupiter/mod.rs
 pub mod models;
+pub mod quote_service;
 pub mod swap_service;
 pub mod token_repository;
 pub mod token_service;
@@ -11,6 +12,7 @@ pub use models::{
     SOL_MINT, USDC_MINT,
 };
 
+pub use quote_service::QuoteService;
 pub use swap_service::SwapService;
 pub use token_repository::TokenRepository;
 pub use token_service::TokenService;

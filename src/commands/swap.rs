@@ -11,7 +11,7 @@ use super::CommandHandler;
 use crate::db;
 use crate::model::State;
 use crate::solana;
-use crate::solana::jupiter::SwapService;
+use crate::solana::jupiter::{QuoteService, SwapService};
 use crate::MyDialogue;
 
 pub struct SwapCommand;
@@ -81,9 +81,10 @@ impl CommandHandler for SwapCommand {
 
                     // Создаем сервис свопа
                     let mut swap_service = SwapService::new();
+                    let mut quote_service = QuoteService::new();
 
                     // Получаем котировку
-                    match swap_service
+                    match quote_service
                         .get_swap_quote(amount, &source_token, &target_token, slippage)
                         .await
                     {

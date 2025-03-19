@@ -1,15 +1,14 @@
-use std::collections::HashMap;
-// src/solana/jupiter/swap_service.rs
 use anyhow::{anyhow, Result};
 use log::{debug, error, info};
 use reqwest::Client;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{pubkey::Pubkey, signature::Keypair};
+use std::collections::HashMap;
 use std::env;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use crate::solana::jupiter::{models::TokenPrice, SwapRequest, TokenService};
+use crate::solana::jupiter::{models::TokenPrice, QuoteService, SwapRequest, TokenService};
 use jupiter_swap_api_client::{
     quote::QuoteRequest, swap::SwapRequest as JupiterSwapRequest,
     transaction_config::TransactionConfig, JupiterSwapApiClient,
@@ -22,6 +21,7 @@ pub struct SwapService {
     pub token_service: TokenService,
     http_client: Client,
     jupiter_client: JupiterSwapApiClient,
+    quote_service: QuoteService,
 }
 
 impl SwapService {
@@ -31,62 +31,8 @@ impl SwapService {
             token_service: TokenService::new(),
             http_client: Client::new(),
             jupiter_client: JupiterSwapApiClient::new("https://quote-api.jup.ag/v6".to_string()),
+            quote_service: QuoteService::new(),
         }
-    }
-
-    /// Получает котировку для обмена токенов
-    pub async fn get_swap_quote(
-        &mut self,
-        amount: f64,
-        source_token: &str,
-        target_token: &str,
-        slippage: f64,
-    ) -> Result<jupiter_swap_api_client::quote::QuoteResponse> {
-        // Получаем информацию о токенах для определения decimals
-        let source_token_info = self
-            .token_service
-            .token_repository
-            .get_token_by_id(source_token)
-            .await?;
-
-        // Конвертируем amount с учетом decimals
-        let decimals = source_token_info.decimals as u32;
-        let amount_in = (amount * 10f64.powi(decimals as i32)) as u64;
-
-        // Конвертируем slippage в базисные пункты
-        let slippage_bps = (slippage * 10000.0) as u16;
-
-        // Парсим строковые адреса токенов в Pubkey
-        let input_mint = Pubkey::from_str(source_token)
-            .map_err(|e| anyhow!("Invalid source token address: {}", e))?;
-
-        let output_mint = Pubkey::from_str(target_token)
-            .map_err(|e| anyhow!("Invalid target token address: {}", e))?;
-
-        // Создаем запрос котировки через SDK
-        let quote_request = QuoteRequest {
-            amount: amount_in,
-            input_mint,
-            output_mint,
-            slippage_bps,
-            ..QuoteRequest::default()
-        };
-
-        debug!("Requesting quote with parameters: {:?}", quote_request);
-
-        // Отправляем запрос через SDK
-        let quote_response = self
-            .jupiter_client
-            .quote(&quote_request)
-            .await
-            .map_err(|e| anyhow!("Failed to get quote from Jupiter API: {}", e))?;
-
-        info!(
-            "Quote received successfully: input_amount={}, output_amount={}",
-            quote_response.in_amount, quote_response.out_amount
-        );
-
-        Ok(quote_response)
     }
 
     /// Подготавливает и получает транзакцию свопа
@@ -104,6 +50,7 @@ impl SwapService {
             amount, source_token, target_token
         );
         let quote_response = self
+            .quote_service
             .get_swap_quote(amount, source_token, target_token, slippage)
             .await?;
 
@@ -182,7 +129,8 @@ impl SwapService {
             VersionedTransaction::try_new(versioned_transaction.message, &[&keypair]).unwrap();
 
         // send with rpc client...
-        let rpc_client = RpcClient::new("https://api.devnet.solana.com".into());
+        //let rpc_client = RpcClient::new("https://api.devnet.solana.com".into());
+        let rpc_client = RpcClient::new("https://api.mainnet-beta.solana.com".into());
 
         info!("Calling network");
 
@@ -217,6 +165,7 @@ impl SwapService {
     ) -> Result<jupiter_swap_api_client::swap::SwapInstructionsResponse> {
         // Получаем котировку
         let quote_response = self
+            .quote_service
             .get_swap_quote(amount, source_token, target_token, slippage)
             .await?;
 
