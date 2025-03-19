@@ -9,7 +9,6 @@ use sqlx::{PgPool, postgres::PgPoolOptions};
 mod commands;
 mod db;
 mod solana;
-mod raydium;
 mod utils;
 mod model;
 mod qrcodeutils;
