@@ -10,11 +10,6 @@ use std::env;
 use std::sync::{Arc, Mutex};
 use teloxide::payloads::SendVenueSetters;
 
-// Константа для API-эндпоинта
-fn token_list_url() -> String {
-    env::var("TOKEN_LIST_URL").unwrap_or_else(|_| "https://token.jup.ag/strict".to_string())
-}
-
 /// Репозиторий для работы с токенами
 #[async_trait]
 pub trait TokenRepository: Send + Sync {
