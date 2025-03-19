@@ -214,13 +214,20 @@ pub enum PrioritizationFeeLamports {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SwapRequest {
+    #[serde(rename = "userPublicKey")]
     pub user_public_key: String,
+    #[serde(rename = "wrapUnwrapSOL")]
     pub wrap_and_unwrap_sol: Option<bool>,
+    #[serde(rename = "useSharedAccounts")]
     pub use_shared_accounts: Option<bool>,
+    #[serde(rename = "feeAccount")]
     pub fee_account: Option<String>,
     pub prioritization_fee_lamports: PrioritizationFeeLamportsWrapper,
+    #[serde(rename = "asLegacyTransaction")]
     pub as_legacy_transaction: Option<bool>,
+    #[serde(rename = "useTokenLedger")]
     pub use_token_ledger: Option<bool>,
+    #[serde(rename = "destinationTokenAccount")]
     pub destination_token_account: Option<String>,
     pub quote_response: QuoteResponse,
 }

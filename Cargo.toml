@@ -17,6 +17,7 @@ solana-transaction-status = "2.2.3"
 spl-token = "7.0.0"
 spl-associated-token-account = "6.0.0"
 solana-account-decoder = "2.2.3"
+jupiter-swap-api-client = { git = "https://github.com/alexk-dev/jupiter-swap-api-client.git", package = "jupiter-swap-api-client"}
 
 # Cryptography and wallet generation
 bip39 = "2.1.0"
@@ -66,3 +67,4 @@ usvg = "0.45.0"
 resvg = "0.45.0"
 tiny-skia = "0.11.4"
 png = "0.17"
+quote = "1.0.40"

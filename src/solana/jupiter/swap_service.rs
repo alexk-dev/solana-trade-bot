@@ -1,41 +1,41 @@
+use std::collections::HashMap;
 // src/solana/jupiter/swap_service.rs
 use std::env;
+use std::str::FromStr;
 use anyhow::{anyhow, Result};
 use log::{info, debug, error};
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
     signature::Keypair,
-    transaction::VersionedTransaction,
-    signature::Signer,
+    pubkey::Pubkey,
 };
 use std::sync::Arc;
-use base64::engine::{Engine as _, general_purpose::STANDARD as BASE64};
-use solana_transaction_status::UiTransactionEncoding;
 use reqwest::Client;
-use serde_json::json;
 
-use crate::solana::jupiter::{
-    models::*,
-    TokenService,
+use jupiter_swap_api_client::{
+    quote::QuoteRequest,
+    swap::SwapRequest as JupiterSwapRequest,
+    transaction_config::TransactionConfig,
+    JupiterSwapApiClient,
 };
-
-// Константы для API-эндпоинтов
-fn quote_api_url() -> String {
-    env::var("QUOTE_API_URL").unwrap_or_else(|_| "https://quote-api.jup.ag/v6".to_string())
-}
+use solana_sdk::signature::NullSigner;
+use solana_sdk::transaction::VersionedTransaction;
+use crate::solana::jupiter::{models::TokenPrice, SwapRequest, TokenService};
 
 /// Сервис для выполнения операций свопа с использованием Jupiter
 pub struct SwapService {
     pub token_service: TokenService,
     http_client: Client,
+    jupiter_client: JupiterSwapApiClient,
 }
 
 impl SwapService {
-    /// Создает новый экземпляр сервиса свопа
+    /// Создает новый экземпляр сервиса свопа с использованием официального SDK
     pub fn new() -> Self {
         Self {
             token_service: TokenService::new(),
             http_client: Client::new(),
+            jupiter_client: JupiterSwapApiClient::new("https://quote-api.jup.ag/v6".to_string()),
         }
     }
 
@@ -46,86 +46,46 @@ impl SwapService {
         source_token: &str,
         target_token: &str,
         slippage: f64,
-    ) -> Result<QuoteResponse> {
-        self.token_service.get_swap_quote(amount, source_token, target_token, slippage).await
+    ) -> Result<jupiter_swap_api_client::quote::QuoteResponse> {
+        // Получаем информацию о токенах для определения decimals
+        let source_token_info = self.token_service.token_repository.get_token_by_id(source_token).await?;
+
+        // Конвертируем amount с учетом decimals
+        let decimals = source_token_info.decimals as u32;
+        let amount_in = (amount * 10f64.powi(decimals as i32)) as u64;
+
+        // Конвертируем slippage в базисные пункты
+        let slippage_bps = (slippage * 10000.0) as u16;
+
+        // Парсим строковые адреса токенов в Pubkey
+        let input_mint = Pubkey::from_str(source_token)
+            .map_err(|e| anyhow!("Invalid source token address: {}", e))?;
+
+        let output_mint = Pubkey::from_str(target_token)
+            .map_err(|e| anyhow!("Invalid target token address: {}", e))?;
+
+        // Создаем запрос котировки через SDK
+        let quote_request = QuoteRequest {
+            amount: amount_in,
+            input_mint,
+            output_mint,
+            slippage_bps,
+            ..QuoteRequest::default()
+        };
+
+        debug!("Requesting quote with parameters: {:?}", quote_request);
+
+        // Отправляем запрос через SDK
+        let quote_response = self.jupiter_client.quote(&quote_request).await
+            .map_err(|e| anyhow!("Failed to get quote from Jupiter API: {}", e))?;
+
+        info!("Quote received successfully: input_amount={}, output_amount={}",
+             quote_response.in_amount, quote_response.out_amount);
+
+        Ok(quote_response)
     }
 
-    /// Создает запрос для свопа с указанными параметрами
-    pub fn create_swap_request(
-        &self,
-        quote: QuoteResponse,
-        user_public_key: &str,
-        destination_token_account: Option<&str>,
-    ) -> SwapRequest {
-        SwapRequest {
-            user_public_key: user_public_key.to_string(),
-            wrap_and_unwrap_sol: Some(true),
-            use_shared_accounts: Some(true),
-            fee_account: None,
-            prioritization_fee_lamports: PrioritizationFeeLamportsWrapper::Auto { auto: true },
-            as_legacy_transaction: Some(false),
-            use_token_ledger: Some(false),
-            destination_token_account: destination_token_account.map(|s| s.to_string()),
-            quote_response: quote,
-        }
-    }
-
-    /// Получает транзакцию для свопа от Jupiter API
-    pub async fn get_swap_transaction(&self, swap_request: SwapRequest) -> Result<SwapResponse> {
-        let url = format!("{}/swap", quote_api_url());
-
-        // Логируем запрос с уровнем INFO
-        let request_json = serde_json::to_string_pretty(&swap_request)
-            .map_err(|e| anyhow!("Failed to serialize swap request: {}", e))?;
-
-        info!("Jupiter Swap API Request: {}", request_json);
-
-        // Отправляем запрос
-        let response = self.http_client.post(&url)
-            .header("Accept", "application/json")
-            .json(&swap_request)
-            .send()
-            .await
-            .map_err(|e| anyhow!("HTTP request failed: {}", e))?;
-
-        // Проверяем статус ответа
-        let status = response.status();
-        info!("Jupiter API swap response status: {}", status);
-
-        if !status.is_success() {
-            let error_text = response.text().await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            error!("Jupiter API error response: {}", error_text);
-            return Err(anyhow!("Jupiter API error: {}", error_text));
-        }
-
-        // Получаем тело ответа
-        let body_text = response.text().await
-            .map_err(|e| anyhow!("Failed to get response text: {}", e))?;
-
-        info!("Jupiter API swap response body: {}", body_text);
-
-        // Пытаемся разобрать JSON
-        let json_result = serde_json::from_str::<SwapResponse>(&body_text);
-
-        match json_result {
-            Ok(swap_response) => Ok(swap_response),
-            Err(e) => {
-                error!("Failed to parse swap response: {}", e);
-
-                // Пытаемся проверить, содержит ли ответ поле error
-                if let Ok(error_resp) = serde_json::from_str::<serde_json::Value>(&body_text) {
-                    if let Some(error) = error_resp.get("error") {
-                        return Err(anyhow!("Jupiter API error: {}", error));
-                    }
-                }
-
-                Err(anyhow!("Failed to deserialize swap response: {}. Response body: {}", e, body_text))
-            }
-        }
-    }
-
-    /// Выполняет весь процесс свопа: получение котировки, создание запроса, получение транзакции
+    /// Подготавливает и получает транзакцию свопа
     pub async fn prepare_swap(
         &mut self,
         amount: f64,
@@ -133,64 +93,31 @@ impl SwapService {
         target_token: &str,
         slippage: f64,
         user_public_key: &str,
-    ) -> Result<SwapResponse> {
+    ) -> Result<jupiter_swap_api_client::swap::SwapResponse> {
         // Получаем котировку
         debug!("Getting swap quote for {} {} to {}", amount, source_token, target_token);
-        let quote = self.get_swap_quote(amount, source_token, target_token, slippage).await?;
+        let quote_response = self.get_swap_quote(amount, source_token, target_token, slippage).await?;
 
-        debug!("Received quote: in_amount={}, out_amount={}, price_impact={}%",
-        quote.in_amount, quote.out_amount, quote.price_impact_pct);
+        // Парсим pubkey пользователя
+        let user_pubkey = Pubkey::from_str(user_public_key)
+            .map_err(|e| anyhow!("Invalid user public key: {}", e))?;
 
-        // Проверка полученных данных
-        if quote.in_amount.is_empty() || quote.out_amount.is_empty() {
-            return Err(anyhow!("Invalid quote: empty in_amount or out_amount"));
-        }
-
-        // Создаем запрос на свап
-        debug!("Creating swap request for user {}", user_public_key);
-
-        // Создаем запрос со стандартными параметрами
-        let swap_request = SwapRequest {
-            user_public_key: user_public_key.to_string(),
-            wrap_and_unwrap_sol: Some(true),
-            use_shared_accounts: Some(true),
-            fee_account: None,
-            prioritization_fee_lamports: PrioritizationFeeLamportsWrapper::Auto { auto: true },
-            as_legacy_transaction: Some(false),
-            use_token_ledger: Some(false),
-            destination_token_account: None,
-            quote_response: quote,
+        // Создаем запрос свопа
+        let swap_request = JupiterSwapRequest {
+            user_public_key: user_pubkey,
+            quote_response: quote_response.clone(),
+            config: TransactionConfig::default(),
         };
 
-        // Проверка на использование SOL и обработка его как особого случая
-        let is_sol_involved = source_token.contains("So11111111111111111111111111111111111111112") ||
-            target_token.contains("So11111111111111111111111111111111111111112");
+        debug!("Requesting swap transaction with user_public_key: {}", user_public_key);
 
-        debug!("Is SOL involved in the swap: {}", is_sol_involved);
+        // Получаем транзакцию свопа через SDK
+        let swap_response = self.jupiter_client.swap(&swap_request, Some(HashMap::new())).await
+            .map_err(|e| anyhow!("Failed to get swap transaction: {}", e))?;
 
-        // Получаем транзакцию
-        debug!("Requesting swap transaction from Jupiter API");
+        info!("Swap transaction received: tx_length={}", swap_response.swap_transaction.len());
 
-        let mut max_retries = 3;
-        let mut last_error = None;
-
-        // Попытки получить транзакцию с повторами при ошибке
-        while max_retries > 0 {
-            match self.get_swap_transaction(swap_request.clone()).await {
-                Ok(swap_response) => {
-                    debug!("Swap transaction received successfully");
-                    return Ok(swap_response);
-                },
-                Err(e) => {
-                    info!("Failed to get swap transaction (retries left: {}): {}", max_retries - 1, e);
-                    last_error = Some(e);
-                    max_retries -= 1;
-                }
-            }
-        }
-
-        // Если все попытки завершились неудачей
-        Err(last_error.unwrap_or_else(|| anyhow!("Failed to get swap transaction after multiple retries")))
+        Ok(swap_response)
     }
 
     /// Выполняет (подписывает и отправляет) транзакцию свопа в сеть
@@ -198,54 +125,96 @@ impl SwapService {
         &self,
         solana_client: &Arc<RpcClient>,
         keypair: &Keypair,
-        swap_response: &SwapResponse
+        swap_response: &jupiter_swap_api_client::swap::SwapResponse
     ) -> Result<String> {
-        // Используем метод с дополнительными опциями, установив значения по умолчанию
-        self.execute_swap_transaction_with_options(
-            solana_client,
-            keypair,
-            swap_response,
-            true, // skip_preflight = true
-            Some(5) // max_retries = 5
-        ).await
+        info!("Executing swap transaction");
+
+        // Теперь мы используем транзакцию напрямую из SDK
+        // let raw_transaction = swap_response.swap_transaction.clone();
+
+        // Отправляем транзакцию в сеть
+        // let signature = match solana_client.send_transaction_with_config(
+        //     &raw_transaction,
+        //     solana_client::rpc_config::RpcSendTransactionConfig {
+        //         skip_preflight: true,
+        //         preflight_commitment: None,
+        //         encoding: None,
+        //         max_retries: Some(5),
+        //         min_context_slot: None,
+        //     }
+        // ).await {
+        //     Ok(sig) => sig,
+        //     Err(e) => {
+        //         error!("Failed to send transaction: {}", e);
+        //         return Err(anyhow!("Failed to send transaction: {}", e));
+        //     }
+        // };
+        //
+        // info!("Transaction sent successfully: {}", signature);
+        //
+        // // Возвращаем подпись транзакции
+        // Ok(signature.to_string())
+        println!("Raw tx len: {}", swap_response.swap_transaction.len());
+
+        let versioned_transaction: VersionedTransaction =
+            bincode::deserialize(&swap_response.swap_transaction).unwrap();
+
+        // Replace with a keypair or other struct implementing signer
+        let signed_versioned_transaction =
+            VersionedTransaction::try_new(versioned_transaction.message, &[&keypair]).unwrap();
+
+        // send with rpc client...
+        let rpc_client = RpcClient::new("https://api.devnet.solana.com".into());
+
+        info!("Calling network");
+
+        let signature = rpc_client
+            .send_and_confirm_transaction(&signed_versioned_transaction)
+            .await?;
+
+        println!("{signature}");
+
+        // // POST /swap-instructions
+        // let swap_instructions = self.jupiter_client
+        //     .swap_instructions(&SwapRequest {
+        //         user_public_key: keypair,
+        //         quote_response,
+        //         config: TransactionConfig::default(),
+        //     })
+        //     .await
+        //     .unwrap();
+        // println!("swap_instructions: {swap_instructions:?}");
+
+        Ok(signature.to_string())
     }
 
-    /// Выполняет (подписывает и отправляет) транзакцию свопа в сеть с дополнительными опциями
-    pub async fn execute_swap_transaction_with_options(
-        &self,
-        solana_client: &Arc<RpcClient>,
-        keypair: &Keypair,
-        swap_response: &SwapResponse,
-        skip_preflight: bool,
-        max_retries: Option<usize>
-    ) -> Result<String> {
-        info!("Executing swap transaction with options");
+    /// Получает аудит транзакции свопа
+    pub async fn get_swap_instructions(
+        &mut self,
+        amount: f64,
+        source_token: &str,
+        target_token: &str,
+        slippage: f64,
+        user_public_key: &str,
+    ) -> Result<jupiter_swap_api_client::swap::SwapInstructionsResponse> {
+        // Получаем котировку
+        let quote_response = self.get_swap_quote(amount, source_token, target_token, slippage).await?;
 
-        // Декодируем base64 строку в байты
-        let transaction_data = BASE64.decode(&swap_response.swap_transaction)
-            .map_err(|e| anyhow!("Failed to decode transaction data: {}", e))?;
+        // Парсим pubkey пользователя
+        let user_pubkey = Pubkey::from_str(user_public_key)
+            .map_err(|e| anyhow!("Invalid user public key: {}", e))?;
 
-        // Десериализуем в VersionedTransaction
-        let mut transaction: VersionedTransaction = bincode::deserialize(&transaction_data)
-            .map_err(|e| anyhow!("Failed to deserialize transaction: {}", e))?;
+        // Создаем запрос на инструкции свопа
+        let swap_request = JupiterSwapRequest {
+            user_public_key: user_pubkey,
+            quote_response,
+            config: TransactionConfig::default(),
+        };
 
-        // Подписываем транзакцию
-        transaction.signatures[0] = keypair.sign_message(&transaction.message.serialize());
+        // Получаем инструкции свопа через SDK
+        let swap_instructions = self.jupiter_client.swap_instructions(&swap_request).await
+            .map_err(|e| anyhow!("Failed to get swap instructions: {}", e))?;
 
-        // Отправляем транзакцию с конфигурацией
-        let signature = solana_client.send_transaction_with_config(
-            &transaction,
-            solana_client::rpc_config::RpcSendTransactionConfig {
-                skip_preflight,
-                preflight_commitment: None,
-                encoding: Some(UiTransactionEncoding::Base64),
-                max_retries,
-                min_context_slot: None,
-            }
-        ).await
-            .map_err(|e| anyhow!("Failed to send transaction: {}", e))?;
-
-        // Возвращаем подпись транзакции
-        Ok(signature.to_string())
+        Ok(swap_instructions)
     }
 }

@@ -4,6 +4,7 @@ use log;
 use sqlx::PgPool;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use std::sync::Arc;
+use rust_decimal::prelude::ToPrimitive;
 use teloxide::prelude::*;
 
 use crate::db;
@@ -90,10 +91,7 @@ impl CommandHandler for SwapCommand {
                                 }
                             };
 
-                            // Конвертируем строку out_amount в f64
-                            let out_amount = quote.out_amount
-                                .parse::<f64>()
-                                .unwrap_or(0.0);
+                            let out_amount:f64 = quote.out_amount.to_f64().unwrap();
 
                             // Применяем правильные decimals
                             let out_amount_float = out_amount / 10f64.powi(target_token_info.decimals as i32);
