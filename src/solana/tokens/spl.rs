@@ -1,11 +1,12 @@
 use anyhow::{anyhow, Result};
 use base64::{engine::general_purpose, Engine as _};
 use log::error;
+use solana_account_decoder::parse_token::UiTokenAccount;
 use solana_account_decoder::{UiAccount, UiAccountData};
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_client::rpc_request::TokenAccountsFilter;
 use solana_client::rpc_response::RpcKeyedAccount;
-use solana_sdk::account::Account; // <-- ВАЖНО: используем Account из sdk
+use solana_sdk::account::Account; // IMPORTANT: we use Account from SDK
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::{Keypair, Signer};
 use spl_associated_token_account::{
@@ -14,6 +15,8 @@ use spl_associated_token_account::{
 use spl_token::{instruction as token_instruction, ID as TOKEN_PROGRAM_ID};
 
 use crate::model::{BotError, TokenBalance};
+use crate::solana::jupiter::token_repository::JupiterTokenRepository;
+use crate::solana::jupiter::TokenRepository;
 use crate::solana::tokens::constants::{RAY_MINT, USDC_MINT, USDT_MINT};
 use crate::solana::tokens::transaction::send_transaction;
 use crate::solana::utils::{convert_to_token_amount, get_token_info_from_mint};
@@ -23,7 +26,7 @@ use crate::solana::wallet::parse_pubkey;
 pub async fn get_token_balances(client: &RpcClient, address: &str) -> Result<Vec<TokenBalance>> {
     let pubkey: Pubkey = parse_pubkey(address)?;
 
-    // 1) Список токен-аккаунтов возвращается в виде UiAccount
+    // 1) The list of token accounts is returned as UiAccount
     let token_accounts: Vec<RpcKeyedAccount> = client
         .get_token_accounts_by_owner(&pubkey, TokenAccountsFilter::ProgramId(spl_token::ID))
         .await
@@ -32,64 +35,33 @@ pub async fn get_token_balances(client: &RpcClient, address: &str) -> Result<Vec
     let mut balances: Vec<TokenBalance> = Vec::new();
 
     for keyed_account in token_accounts {
-        // keyed_account.account имеет тип UiAccount
-        let ui_account: UiAccount = keyed_account.account;
-        let ui_account_data: UiAccountData = ui_account.data;
+        let token_account_pubkey: Pubkey = parse_pubkey(&keyed_account.pubkey.to_string())?;
+        //
+        // let token_account = client.get_account(&token_account_pubkey).await?;
 
-        // Попробуем раскодировать из base64 (потому что это UiAccount)
-        let decoded_data: Vec<u8> = match ui_account_data {
-            UiAccountData::Binary(base64_str, _encoding) => general_purpose::STANDARD
-                .decode(base64_str)
-                .map_err(|e| anyhow!("Failed to decode base64: {}", e))?,
-            _ => {
-                error!("Unsupported account data format");
-                continue;
-            }
-        };
+        // let balance = client
+        //     .get_token_account_balance(&token_account_pubkey)
+        //     .await
+        //     .unwrap();
 
-        if decoded_data.len() < 72 {
-            error!("Token account data too short");
-            continue;
-        }
+        let token_account = client
+            .get_token_account(&token_account_pubkey)
+            .await?
+            .unwrap();
+        let mint_id = token_account.mint.to_string();
+        let token_amount = token_account.token_amount.ui_amount.unwrap();
 
-        // manual parsing
-        let amount_u64: u64 = u64::from_le_bytes(decoded_data[64..72].try_into()?);
-        let mint_bytes: [u8; 32] = decoded_data[32..64].try_into()?;
-        let mint_address: Pubkey = Pubkey::new_from_array(mint_bytes);
+        let token_repository = JupiterTokenRepository::new();
+        let token = token_repository
+            .get_token_by_id(&mint_id)
+            .await
+            .map_err(|e| anyhow!("Failed to get token: {}", e))?;
 
-        if amount_u64 > 0 {
-            // 2) А вот при запросе mint-аккаунта `get_account(...)` возвращает Account (сырые данные).
-            let mint_account: Account = match client.get_account(&mint_address).await {
-                Ok(acc) => acc,
-                Err(e) => {
-                    error!("Failed to get mint info: {}", e);
-                    continue;
-                }
-            };
-
-            // Тут уже нет UiAccountData, данные сразу Vec<u8>.
-            let decoded_mint_data: Vec<u8> = mint_account.data;
-
-            // смотрим decimals (обычно в байте №44)
-            if decoded_mint_data.len() < 45 {
-                // На всякий случай проверим длину
-                error!("Mint account data too short");
-                continue;
-            }
-            let decimals: u8 = decoded_mint_data[44];
-
-            let amount_f64: f64 = amount_u64 as f64 / 10_f64.powi(decimals as i32);
-
-            // сопоставляем mint -> (symbol, mint_address_string)
-            let (symbol, mint_str): (&str, String) = get_token_info_from_mint(mint_address);
-
-            // пишем в balances
-            balances.push(TokenBalance {
-                symbol: symbol.to_owned(),
-                amount: amount_f64,
-                mint_address: mint_str,
-            });
-        }
+        balances.push(TokenBalance {
+            symbol: token.symbol,
+            amount: token_amount,
+            mint_address: mint_id.clone(),
+        });
     }
 
     Ok(balances)
@@ -123,7 +95,7 @@ pub async fn send_spl_token(
     // Check if sender has the token account
     match client.get_account(&sender_token_account).await {
         Ok(sender_token_account_info) => {
-            // sender_token_account_info имеет тип Account (raw).
+            // sender_token_account_info has Account type (raw).
             let account_data: Vec<u8> = sender_token_account_info.data;
 
             if account_data.len() < 72 {
@@ -138,7 +110,7 @@ pub async fn send_spl_token(
                 .await
                 .map_err(|e| anyhow!("Failed to get mint info: {}", e))?;
 
-            // mint_info.data тоже Vec<u8>
+            // mint_info.data is also Vec<u8>
             let mint_data: Vec<u8> = mint_info.data;
 
             let decimals: u8 = if mint_data.len() > 44 {

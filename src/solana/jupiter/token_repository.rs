@@ -1,29 +1,28 @@
+// src/repositories/token_repository.rs
 use crate::solana::jupiter::models::Token;
 use crate::solana::jupiter::{JupiterToken, SOL_MINT, USDC_MINT};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use log::{error, info, warn};
+use log::{error, info};
 use reqwest::Client;
-use serde_json::Value;
 use std::collections::HashMap;
-use std::env;
 use std::sync::{Arc, Mutex};
-use teloxide::payloads::SendVenueSetters;
 
-/// Репозиторий для работы с токенами
+/// Repository for working with tokens
 #[async_trait]
 pub trait TokenRepository: Send + Sync {
+    /// Get token information by its ID
     async fn get_token_by_id(&self, token_id: &str) -> Result<Token>;
 }
 
-/// Реализация репозитория для работы с токенами Jupiter
+/// Implementation of the repository for working with Jupiter tokens
 pub struct JupiterTokenRepository {
     http_client: Client,
     token_cache: Arc<Mutex<HashMap<String, Token>>>,
 }
 
 impl JupiterTokenRepository {
-    /// Создает новый экземпляр репозитория для Jupiter
+    /// Creates a new instance of the Jupiter repository
     pub fn new() -> Self {
         Self {
             http_client: Client::new(),
@@ -34,11 +33,19 @@ impl JupiterTokenRepository {
 
 #[async_trait]
 impl TokenRepository for JupiterTokenRepository {
-    /// Получает информацию о токене по его ID
+    /// Gets token information by its ID
     async fn get_token_by_id(&self, token_id: &str) -> Result<Token> {
         info!("Getting token by ID: {}", token_id);
 
-        // Запрашиваем токен через API
+        // Check cache first
+        {
+            let cache = self.token_cache.lock().unwrap();
+            if let Some(token) = cache.get(token_id) {
+                return Ok(token.clone());
+            }
+        }
+
+        // Request token via API
         let url = format!("https://api.jup.ag/tokens/v1/token/{}", token_id);
 
         let response = self.http_client.get(&url).send().await.map_err(|e| {
@@ -48,11 +55,12 @@ impl TokenRepository for JupiterTokenRepository {
 
         info!(
             "Jupiter API response: {} for token {}",
-            &response.status(),
+            response.status(),
             token_id
         );
-        if !&response.status().is_success() {
-            // Если это SOL или USDC, вернем заглушку
+
+        if !response.status().is_success() {
+            // If it's SOL or USDC, return a placeholder
             if token_id == SOL_MINT {
                 let sol = Token {
                     id: SOL_MINT.to_string(),
@@ -75,18 +83,21 @@ impl TokenRepository for JupiterTokenRepository {
                 return Ok(usdc);
             }
 
-            let error_text = response.text().await.unwrap_or("Unknown error".to_string());
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
             error!("Jupiter API error [get_token_by_id]: {}", error_text);
             return Err(anyhow!("Jupiter API error: {}", error_text));
         }
 
-        // Парсим ответ
+        // Parse the response
         let jupiter_token: JupiterToken = response.json().await.map_err(|e| {
             error!("Failed to parse token response: {}", e);
             anyhow!("Failed to parse token response: {}", e)
         })?;
 
-        // Преобразуем в наш формат токена
+        // Convert to our token format
         let token = Token {
             id: jupiter_token.address,
             symbol: jupiter_token.symbol,
@@ -94,6 +105,12 @@ impl TokenRepository for JupiterTokenRepository {
             decimals: jupiter_token.decimals,
             logo_uri: jupiter_token.logo_uri.unwrap_or_default(),
         };
+
+        // Update cache
+        {
+            let mut cache = self.token_cache.lock().unwrap();
+            cache.insert(token.id.clone(), token.clone());
+        }
 
         Ok(token)
     }
