@@ -1,94 +1,96 @@
+//! Solana Wallet Bot for Telegram - Main executable
+//!
+//! This is the entry point for the Telegram bot application that allows users
+//! to create and manage Solana wallets, check balances, perform token swaps,
+//! and execute trades directly from Telegram chats.
+use anyhow::Context;
 use dotenv::dotenv;
-use env_logger;
 use log::{error, info};
+use solana_wallet_bot::{create_application, create_solana_client, Router};
 use sqlx::postgres::PgPoolOptions;
 use std::env;
 use std::sync::Arc;
-use teloxide::{prelude::*, Bot};
+use teloxide::{dptree, Bot};
 use tokio;
 
-mod commands;
-mod di;
-mod entity;
-mod interactor;
-mod model;
-mod presenter;
-mod qrcodeutils;
-mod router;
-mod solana;
-mod utils;
-mod view;
-
-use di::ServiceContainer;
-use router::{Router, TelegramRouter};
-use teloxide::dispatching::dialogue::InMemStorage;
-
+/// Application entry point
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Load environment variables from .env file
     dotenv().ok();
 
-    // Initialize logging
+    // Initialize logging with default level of "info"
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
-    info!("Starting Solana Wallet Telegram Bot");
+    info!(
+        "Starting Solana Wallet Telegram Bot v{}",
+        solana_wallet_bot::VERSION
+    );
 
-    // Load environment variables
+    // Load and validate environment variables
     let bot_token = env::var("TELEGRAM_BOT_TOKEN")
-        .expect("TELEGRAM_BOT_TOKEN must be set in environment variables");
-    let bot = Bot::new(bot_token);
+        .context("TELEGRAM_BOT_TOKEN must be set in environment variables")?;
 
     let database_url =
-        env::var("DATABASE_URL").expect("DATABASE_URL must be set in environment variables");
+        env::var("DATABASE_URL").context("DATABASE_URL must be set in environment variables")?;
+
+    let solana_rpc_url = env::var("SOLANA_RPC_URL")
+        .context("SOLANA_RPC_URL must be set in environment variables")?;
+
+    // Create Telegram bot instance
+    let bot = Bot::new(bot_token);
+
+    // Setup database connection pool
+    info!("Connecting to database...");
     let db_pool = PgPoolOptions::new()
         .max_connections(10)
         .connect(&database_url)
         .await
-        .expect("Failed to create database connection pool");
-    let db_pool = std::sync::Arc::new(db_pool);
+        .context("Failed to create database connection pool")?;
+    let db_pool = Arc::new(db_pool);
 
+    // Create a separate connection for migrations
     let db_pool_for_migration = PgPoolOptions::new()
         .max_connections(1)
         .connect(&database_url)
         .await
-        .expect("Failed to create database connection pool");
+        .context("Failed to create migration connection pool")?;
 
-    // Run migrations
+    // Run database migrations
     info!("Running database migrations...");
-    match sqlx::migrate!("./migrations")
+    if let Err(e) = sqlx::migrate!("./migrations")
         .run(&db_pool_for_migration)
         .await
     {
-        Ok(_) => info!("Migrations completed successfully"),
-        Err(e) => {
-            error!("Failed to run migrations: {}", e);
-            return Err(anyhow::Error::from(e));
-        }
+        error!("Failed to run migrations: {}", e);
+        return Err(anyhow::Error::from(e));
     }
+    info!("Migrations completed successfully");
 
+    // Close migration connection
     db_pool_for_migration.close().await;
 
-    let solana_rpc_url =
-        env::var("SOLANA_RPC_URL").expect("SOLANA_RPC_URL must be set in environment variables");
+    // Initialize Solana client
+    info!("Connecting to Solana network...");
     let solana_client =
-        solana::create_solana_client(&solana_rpc_url).expect("Failed to create Solana client");
+        create_solana_client(&solana_rpc_url).context("Failed to create Solana client")?;
 
-    // Create service container
-    let service_container = ServiceContainer::new(db_pool, solana_client.clone());
-    let service_container = Arc::new(service_container);
+    // Create and start the application
+    info!("Initializing bot application...");
 
-    // In-memory storage for dialogues
-    let storage = InMemStorage::<entity::State>::new();
+    // Initialize the application components
+    let (router, bot, service_container, storage) =
+        solana_wallet_bot::create_application(bot, db_pool, solana_client);
 
-    // Create and setup the router
-    let router = TelegramRouter::new(service_container.clone());
+    // Get the handler from the router
     let handler = router.setup_handlers();
 
     // Build dispatcher with dependency injections and control-C handling
-    let mut dispatcher = Dispatcher::builder(bot, handler)
+    let mut dispatcher = teloxide::dispatching::Dispatcher::builder(bot, handler)
         .dependencies(dptree::deps![service_container, storage])
         .enable_ctrlc_handler()
         .build();
 
-    info!("Bot is running!");
+    info!("Bot is running! Press Ctrl+C to stop.");
     dispatcher.dispatch().await;
 
     Ok(())
