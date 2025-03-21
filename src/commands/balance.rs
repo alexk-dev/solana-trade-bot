@@ -2,17 +2,12 @@ use anyhow::Result;
 use log::{error, info};
 use solana_client::nonblocking::rpc_client::RpcClient;
 use sqlx::PgPool;
-use std::ops::Deref;
 use std::sync::Arc;
 use teloxide::{prelude::*, types::ParseMode};
 
 use super::CommandHandler;
+use crate::di::ServiceContainer;
 use crate::model::TokenBalance;
-use crate::solana::jupiter::price_service::JupiterPriceService;
-use crate::solana::jupiter::price_service::PriceService;
-use crate::solana::jupiter::quote_service::JupiterQuoteService;
-use crate::solana::jupiter::token_repository::JupiterTokenRepository;
-use crate::solana::jupiter::{Config, SwapService};
 use crate::MyDialogue;
 use crate::{db, solana};
 
@@ -31,12 +26,13 @@ impl CommandHandler for BalanceCommand {
         bot: Bot,
         msg: Message,
         _dialogue: Option<MyDialogue>,
-        db_pool: Option<PgPool>,
         solana_client: Option<Arc<RpcClient>>,
+        services: Arc<ServiceContainer>,
     ) -> Result<()> {
-        let db_pool = db_pool.ok_or_else(|| anyhow::anyhow!("Database pool not provided"))?;
-        let solana_client =
-            solana_client.ok_or_else(|| anyhow::anyhow!("Solana client not provided"))?;
+        let db_pool = &services.db_pool();
+        let solana_client = &services.solana_client();
+        let price_service = &services.price_service();
+
         let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
 
         info!("Balance command received from Telegram ID: {}", telegram_id);
@@ -62,24 +58,10 @@ impl CommandHandler for BalanceCommand {
                 }
             };
 
-            // Initialize price service for USD values (if tokens exist)
+            // Initialize vector for USD values
             let mut usd_values = Vec::new();
+
             if !token_balances.is_empty() {
-                // Create required components for price retrieval
-                let config = Config::from_env();
-                let token_rep = JupiterTokenRepository::new();
-                let quote_srv = JupiterQuoteService::new(JupiterTokenRepository::new());
-
-                let token_repository = Arc::new(&token_rep);
-
-                let quote_service =
-                    Arc::new(JupiterQuoteService::new(JupiterTokenRepository::new()));
-                let price_service = Arc::new(JupiterPriceService::new(
-                    JupiterTokenRepository::new(),
-                    quote_srv,
-                    config.clone(),
-                ));
-
                 // Get SOL price first for reference
                 let sol_price = match price_service.get_sol_price().await {
                     Ok(price) => price,

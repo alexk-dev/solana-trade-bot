@@ -1,10 +1,9 @@
-// src/commands/mod.rs
 use anyhow::Result;
-use solana_client::nonblocking::rpc_client::RpcClient;
 use sqlx::PgPool;
 use std::sync::Arc;
 use teloxide::{dispatching::dialogue::InMemStorage, prelude::*, types::ParseMode};
 
+use crate::di::ServiceContainer; // Import the service container
 use crate::model::State;
 use crate::MyDialogue;
 
@@ -29,8 +28,8 @@ pub trait CommandHandler {
         bot: Bot,
         msg: Message,
         dialogue: Option<MyDialogue>,
-        db_pool: Option<PgPool>,
-        solana_client: Option<Arc<RpcClient>>,
+        solana_client: Option<Arc<solana_client::nonblocking::rpc_client::RpcClient>>,
+        services: Arc<ServiceContainer>,
     ) -> Result<()>;
 }
 
@@ -80,44 +79,44 @@ pub fn setup_command_handlers() -> teloxide::dispatching::UpdateHandler<anyhow::
     // Use BotCommands enum with teloxide's command filter
     let command_handler = teloxide::filter_command::<BotCommands, _>()
         .branch(case![BotCommands::Start].endpoint(
-            |bot: Bot, msg: Message, db_pool: PgPool| async move {
-                start::StartCommand::execute(bot, msg, None, Some(db_pool), None).await
+            |bot: Bot, msg: Message, db_pool: PgPool, services: Arc<ServiceContainer>| async move {
+                start::StartCommand::execute(bot, msg, None, None, services).await
             },
         ))
         .branch(case![BotCommands::CreateWallet].endpoint(
-            |bot: Bot, msg: Message, db_pool: PgPool| async move {
-                wallet::CreateWalletCommand::execute(bot, msg, None, Some(db_pool), None).await
+            |bot: Bot, msg: Message, db_pool: PgPool, services: Arc<ServiceContainer>| async move {
+                wallet::CreateWalletCommand::execute(bot, msg, None, None, services).await
             },
         ))
         .branch(case![BotCommands::Address].endpoint(
-            |bot: Bot, msg: Message, db_pool: PgPool| async move {
-                wallet::AddressCommand::execute(bot, msg, None, Some(db_pool), None).await
+            |bot: Bot, msg: Message, db_pool: PgPool, services: Arc<ServiceContainer>| async move {
+                wallet::AddressCommand::execute(bot, msg, None,  None, services).await
             },
         ))
         .branch(case![BotCommands::Balance].endpoint(
-            |bot: Bot, msg: Message, db_pool: PgPool, solana_client: Arc<RpcClient>| async move {
-                balance::BalanceCommand::execute(bot, msg, None, Some(db_pool), Some(solana_client))
+            |bot: Bot, msg: Message, db_pool: PgPool, solana_client: Arc<solana_client::nonblocking::rpc_client::RpcClient>, services: Arc<ServiceContainer>| async move {
+                balance::BalanceCommand::execute(bot, msg, None, Some(solana_client), services)
                     .await
             },
         ))
         .branch(case![BotCommands::Send].endpoint(
-            |bot: Bot, msg: Message, dialogue: MyDialogue| async move {
-                send::SendCommand::execute(bot, msg, Some(dialogue), None, None).await
+            |bot: Bot, msg: Message, dialogue: MyDialogue, services: Arc<ServiceContainer>| async move {
+                send::SendCommand::execute(bot, msg, Some(dialogue),  None, services).await
             },
         ))
         .branch(case![BotCommands::Swap].endpoint(
-            |bot: Bot, msg: Message, db_pool: PgPool, solana_client: Arc<RpcClient>| async move {
-                swap::SwapCommand::execute(bot, msg, None, Some(db_pool), Some(solana_client)).await
+            |bot: Bot, msg: Message, db_pool: PgPool, solana_client: Arc<solana_client::nonblocking::rpc_client::RpcClient>, services: Arc<ServiceContainer>| async move {
+                swap::SwapCommand::execute(bot, msg, None,  Some(solana_client), services).await
             },
         ))
         .branch(
-            case![BotCommands::Price].endpoint(|bot: Bot, msg: Message| async move {
-                price::PriceCommand::execute(bot, msg, None, None, None).await
+            case![BotCommands::Price].endpoint(|bot: Bot, msg: Message, services: Arc<ServiceContainer>| async move {
+                price::PriceCommand::execute(bot, msg, None,  None, services).await
             }),
         )
         .branch(
-            case![BotCommands::Help].endpoint(|bot: Bot, msg: Message| async move {
-                help::HelpCommand::execute(bot, msg, None, None, None).await
+            case![BotCommands::Help].endpoint(|bot: Bot, msg: Message, services: Arc<ServiceContainer>| async move {
+                help::HelpCommand::execute(bot, msg, None, None, services).await
             }),
         );
 
@@ -133,9 +132,32 @@ pub fn setup_command_handlers() -> teloxide::dispatching::UpdateHandler<anyhow::
                     amount,
                     token
                 }]
-                .endpoint(send::receive_confirmation),
+                .endpoint(
+                    |bot: Bot,
+                     msg: Message,
+                     state: State,
+                     dialogue: MyDialogue,
+                     db_pool: PgPool,
+                     solana_client: Arc<solana_client::nonblocking::rpc_client::RpcClient>,
+                     services: Arc<ServiceContainer>| async move {
+                        send::receive_confirmation(
+                            bot,
+                            msg,
+                            state,
+                            dialogue,
+                            db_pool,
+                            solana_client,
+                            services,
+                        )
+                        .await
+                    },
+                ),
             )
-            .branch(case![State::AwaitingSwapDetails].endpoint(swap::receive_swap_details)),
+            .branch(case![State::AwaitingSwapDetails].endpoint(
+                |bot: Bot, msg: Message, dialogue: MyDialogue| async move {
+                    swap::receive_swap_details(bot, msg, dialogue).await
+                },
+            )),
     );
 
     teloxide::dispatching::dialogue::enter::<Update, InMemStorage<State>, State, _>()

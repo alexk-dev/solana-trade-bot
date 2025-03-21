@@ -8,6 +8,7 @@ use teloxide::{prelude::*, types::ParseMode};
 
 use super::CommandHandler;
 use crate::db;
+use crate::di::ServiceContainer;
 use crate::MyDialogue;
 
 pub struct StartCommand;
@@ -25,10 +26,11 @@ impl CommandHandler for StartCommand {
         bot: Bot,
         msg: Message,
         _dialogue: Option<MyDialogue>,
-        db_pool: Option<PgPool>,
         _solana_client: Option<Arc<RpcClient>>,
+        services: Arc<ServiceContainer>,
     ) -> Result<()> {
-        let db_pool = db_pool.ok_or_else(|| anyhow::anyhow!("Database pool not provided"))?;
+        let db_pool = services.db_pool();
+
         let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
         let username = msg.from().and_then(|user| user.username.clone());
 
@@ -45,15 +47,15 @@ impl CommandHandler for StartCommand {
 
             bot.send_message(
                 msg.chat.id,
-                "Привет! Я бот для управления Solana-кошельком. Вы успешно зарегистрированы.\n\n\
-                Используйте /create_wallet чтобы создать новый кошелек, или /help для просмотра всех команд."
+                "Hello! I'm a Solana wallet management bot. You have been successfully registered.\n\n\
+                Use /create_wallet to create a new wallet, or /help to view all available commands."
             )
                 .parse_mode(ParseMode::Markdown)
                 .await?;
         } else {
             bot.send_message(
                 msg.chat.id,
-                "С возвращением! Используйте /help для просмотра доступных команд.",
+                "Welcome back! Use /help to view all available commands.",
             )
             .parse_mode(ParseMode::Markdown)
             .await?;

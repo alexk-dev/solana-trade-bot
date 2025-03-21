@@ -10,6 +10,7 @@ use teloxide::{
 };
 
 use super::CommandHandler;
+use crate::di::ServiceContainer;
 use crate::MyDialogue;
 use crate::{db, qrcodeutils, solana, utils};
 
@@ -28,10 +29,10 @@ impl CommandHandler for CreateWalletCommand {
         bot: Bot,
         msg: Message,
         _dialogue: Option<MyDialogue>,
-        db_pool: Option<PgPool>,
         _solana_client: Option<Arc<RpcClient>>,
+        services: Arc<ServiceContainer>,
     ) -> Result<()> {
-        let db_pool = db_pool.ok_or_else(|| anyhow::anyhow!("Database pool not provided"))?;
+        let db_pool = services.db_pool();
         let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
 
         info!(
@@ -95,10 +96,10 @@ impl CommandHandler for AddressCommand {
         bot: Bot,
         msg: Message,
         _dialogue: Option<MyDialogue>,
-        db_pool: Option<PgPool>,
         _solana_client: Option<Arc<RpcClient>>,
+        services: Arc<ServiceContainer>,
     ) -> Result<()> {
-        let db_pool = db_pool.ok_or_else(|| anyhow::anyhow!("Database pool not provided"))?;
+        let db_pool = services.db_pool();
         let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
 
         info!("Address command received from Telegram ID: {}", telegram_id);

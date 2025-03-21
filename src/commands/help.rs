@@ -1,12 +1,12 @@
 // src/commands/help.rs
+use super::CommandHandler;
+use crate::di::ServiceContainer;
+use crate::MyDialogue;
 use anyhow::Result;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use sqlx::PgPool;
 use std::sync::Arc;
 use teloxide::prelude::*;
-
-use super::CommandHandler;
-use crate::MyDialogue;
 
 pub struct HelpCommand;
 
@@ -23,8 +23,8 @@ impl CommandHandler for HelpCommand {
         bot: Bot,
         msg: Message,
         _dialogue: Option<MyDialogue>,
-        _db_pool: Option<PgPool>,
         _solana_client: Option<Arc<RpcClient>>,
+        services: Arc<ServiceContainer>,
     ) -> Result<()> {
         bot.send_message(
             msg.chat.id,

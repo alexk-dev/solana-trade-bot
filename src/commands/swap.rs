@@ -9,6 +9,7 @@ use teloxide::prelude::*;
 
 use super::CommandHandler;
 use crate::db;
+use crate::di::ServiceContainer;
 use crate::model::State;
 use crate::solana;
 use crate::solana::jupiter::quote_service::JupiterQuoteService;
@@ -31,10 +32,10 @@ impl CommandHandler for SwapCommand {
         bot: Bot,
         msg: Message,
         _dialogue: Option<MyDialogue>,
-        db_pool: Option<PgPool>,
         solana_client: Option<Arc<RpcClient>>,
+        services: Arc<ServiceContainer>,
     ) -> Result<()> {
-        let db_pool = db_pool.ok_or_else(|| anyhow::anyhow!("Database pool not provided"))?;
+        let db_pool = services.db_pool();
         let solana_client =
             solana_client.ok_or_else(|| anyhow::anyhow!("Solana client not provided"))?;
         let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);

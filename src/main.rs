@@ -8,11 +8,13 @@ use tokio;
 
 mod commands;
 mod db;
+mod di; // New module for dependency injection
 mod model;
 mod qrcodeutils;
 mod solana;
 mod utils;
 
+use di::ServiceContainer; // Import the service container
 use teloxide::dispatching::dialogue::InMemStorage;
 
 type MyDialogue = Dialogue<model::State, InMemStorage<model::State>>;
@@ -37,10 +39,26 @@ async fn main() -> anyhow::Result<()> {
         .connect(&database_url)
         .await
         .expect("Failed to create database connection pool");
+    let db_pool = std::sync::Arc::new(db_pool);
+
+    let db_pool_for_migration = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&database_url)
+        .await
+        .expect("Failed to create database connection pool");
+
+    let db_pool_for_tg = PgPoolOptions::new()
+        .max_connections(10)
+        .connect(&database_url)
+        .await
+        .expect("Failed to create database connection pool");
 
     // Run migrations
     info!("Running database migrations...");
-    match sqlx::migrate!("./migrations").run(&db_pool).await {
+    match sqlx::migrate!("./migrations")
+        .run(&db_pool_for_migration)
+        .await
+    {
         Ok(_) => info!("Migrations completed successfully"),
         Err(e) => {
             error!("Failed to run migrations: {}", e);
@@ -48,10 +66,16 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    db_pool_for_migration.close().await;
+
     let solana_rpc_url =
         env::var("SOLANA_RPC_URL").expect("SOLANA_RPC_URL must be set in environment variables");
     let solana_client =
         solana::create_solana_client(&solana_rpc_url).expect("Failed to create Solana client");
+
+    // Create service container
+    let service_container = ServiceContainer::new(db_pool, solana_client.clone());
+    let service_container = std::sync::Arc::new(service_container);
 
     // In-memory storage (could replace with persistent storage if needed)
     let storage = InMemStorage::<model::State>::new();
@@ -59,8 +83,13 @@ async fn main() -> anyhow::Result<()> {
     // Setup command handlers
     let handler = commands::setup_command_handlers();
 
-    // Create dependency tree
-    let dependencies = dptree::deps![db_pool, solana_client, storage];
+    // Create dependency tree with the service container
+    let dependencies = dptree::deps![
+        db_pool_for_tg,
+        solana_client.clone(),
+        service_container,
+        storage
+    ];
 
     // Build dispatcher with control-C handling enabled
     let mut dispatcher = Dispatcher::builder(bot, handler)

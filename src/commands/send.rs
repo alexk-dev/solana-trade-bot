@@ -1,4 +1,3 @@
-// src/commands/send.rs
 use anyhow::Result;
 use log::{error, info};
 use solana_client::nonblocking::rpc_client::RpcClient;
@@ -7,6 +6,7 @@ use std::sync::Arc;
 use teloxide::prelude::*;
 
 use super::CommandHandler;
+use crate::di::ServiceContainer;
 use crate::model::State;
 use crate::MyDialogue;
 use crate::{db, solana, utils};
@@ -26,14 +26,14 @@ impl CommandHandler for SendCommand {
         bot: Bot,
         msg: Message,
         dialogue: Option<MyDialogue>,
-        _db_pool: Option<PgPool>,
         _solana_client: Option<Arc<RpcClient>>,
+        _services: Arc<ServiceContainer>,
     ) -> Result<()> {
         let dialogue = dialogue.ok_or_else(|| anyhow::anyhow!("Dialogue context not provided"))?;
         info!("Send command initiated");
 
         dialogue.update(State::AwaitingRecipientAddress).await?;
-        bot.send_message(msg.chat.id, "Введите Solana-адрес получателя:")
+        bot.send_message(msg.chat.id, "Enter the recipient's Solana address:")
             .await?;
 
         Ok(())
@@ -52,22 +52,19 @@ pub async fn receive_recipient_address(bot: Bot, msg: Message, dialogue: MyDialo
 
             bot.send_message(
                 msg.chat.id,
-                "Введите сумму для отправки (например: 0.5 SOL или 100 USDC):",
+                "Enter the amount to send (example: 0.5 SOL or 100 USDC):",
             )
             .await?;
         } else {
             bot.send_message(
                 msg.chat.id,
-                "Некорректный Solana-адрес. Пожалуйста, проверьте адрес и попробуйте снова:",
+                "Invalid Solana address. Please check the address and try again:",
             )
             .await?;
         }
     } else {
-        bot.send_message(
-            msg.chat.id,
-            "Пожалуйста, введите текстовый адрес получателя:",
-        )
-        .await?;
+        bot.send_message(msg.chat.id, "Please enter the recipient's address as text:")
+            .await?;
     }
 
     Ok(())
@@ -94,7 +91,7 @@ pub async fn receive_amount(
                 bot.send_message(
                     msg.chat.id,
                     format!(
-                        "Подтвердите отправку {} {} на адрес {} (да/нет):",
+                        "Confirm sending {} {} to address {} (yes/no):",
                         amount, token, recipient
                     ),
                 )
@@ -102,11 +99,12 @@ pub async fn receive_amount(
             } else {
                 bot.send_message(
                     msg.chat.id,
-                    "Некорректный формат суммы. Пожалуйста, введите в формате '0.5 SOL' или '100 USDC':"
-                ).await?;
+                    "Invalid amount format. Please enter in the format '0.5 SOL' or '100 USDC':",
+                )
+                .await?;
             }
         } else {
-            bot.send_message(msg.chat.id, "Пожалуйста, введите сумму для отправки:")
+            bot.send_message(msg.chat.id, "Please enter the amount to send:")
                 .await?;
         }
     }
@@ -121,6 +119,7 @@ pub async fn receive_confirmation(
     dialogue: MyDialogue,
     db_pool: PgPool,
     solana_client: Arc<RpcClient>,
+    services: Arc<ServiceContainer>,
 ) -> Result<()> {
     if let State::AwaitingConfirmation {
         recipient,
@@ -131,7 +130,7 @@ pub async fn receive_confirmation(
         if let Some(text) = msg.text() {
             let confirmation = text.to_lowercase();
 
-            if confirmation == "да" || confirmation == "yes" {
+            if confirmation == "yes" {
                 let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
 
                 // Reset dialogue state
@@ -139,8 +138,12 @@ pub async fn receive_confirmation(
 
                 // Send "processing" message
                 let processing_msg = bot
-                    .send_message(msg.chat.id, "Отправка средств... Пожалуйста, подождите.")
+                    .send_message(msg.chat.id, "Sending funds... Please wait.")
                     .await?;
+
+                // We can use either directly passed parameters or get them from services container
+                let db_pool = services.db_pool();
+                let solana_client = services.solana_client();
 
                 // Get user wallet info
                 let user = db::get_user_by_telegram_id(&db_pool, telegram_id).await?;
@@ -184,7 +187,7 @@ pub async fn receive_confirmation(
                                         msg.chat.id,
                                         processing_msg.id,
                                         format!(
-                                            "✅ Средства отправлены. Tx Signature: {}",
+                                            "✅ Funds sent successfully. Tx Signature: {}",
                                             signature
                                         ),
                                     )
@@ -209,7 +212,7 @@ pub async fn receive_confirmation(
                                     bot.edit_message_text(
                                         msg.chat.id,
                                         processing_msg.id,
-                                        format!("❌ Ошибка при отправке средств: {}", e),
+                                        format!("❌ Error sending funds: {}", e),
                                     )
                                     .await?;
                                 }
@@ -218,7 +221,7 @@ pub async fn receive_confirmation(
                             bot.edit_message_text(
                                 msg.chat.id,
                                 processing_msg.id,
-                                "❌ Ошибка: Не найден закрытый ключ для вашего кошелька.",
+                                "❌ Error: Private key not found for your wallet.",
                             )
                             .await?;
                         }
@@ -227,7 +230,7 @@ pub async fn receive_confirmation(
                         bot.edit_message_text(
                             msg.chat.id,
                             processing_msg.id,
-                            "❌ У вас еще нет кошелька. Используйте /create_wallet чтобы создать новый кошелек."
+                            "❌ You don't have a wallet yet. Use /create_wallet to create a new wallet."
                         ).await?;
                     }
                 }
@@ -235,7 +238,7 @@ pub async fn receive_confirmation(
                 // Transaction cancelled
                 dialogue.update(State::Start).await?;
 
-                bot.send_message(msg.chat.id, "Отправка средств отменена.")
+                bot.send_message(msg.chat.id, "Transaction cancelled.")
                     .await?;
             }
         }

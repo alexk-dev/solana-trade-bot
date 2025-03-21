@@ -1,12 +1,8 @@
 use anyhow::{anyhow, Result};
-use base64::{engine::general_purpose, Engine as _};
-use log::error;
-use solana_account_decoder::parse_token::UiTokenAccount;
-use solana_account_decoder::{UiAccount, UiAccountData};
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_client::rpc_request::TokenAccountsFilter;
 use solana_client::rpc_response::RpcKeyedAccount;
-use solana_sdk::account::Account; // IMPORTANT: we use Account from SDK
+use solana_sdk::account::Account;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::{Keypair, Signer};
 use spl_associated_token_account::{
@@ -19,7 +15,7 @@ use crate::solana::jupiter::token_repository::JupiterTokenRepository;
 use crate::solana::jupiter::TokenRepository;
 use crate::solana::tokens::constants::{RAY_MINT, USDC_MINT, USDT_MINT};
 use crate::solana::tokens::transaction::send_transaction;
-use crate::solana::utils::{convert_to_token_amount, get_token_info_from_mint};
+use crate::solana::utils::convert_to_token_amount;
 use crate::solana::wallet::parse_pubkey;
 
 /// Get token balances
