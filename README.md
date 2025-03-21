@@ -52,7 +52,7 @@ The project follows Clean Architecture principles with the VIPER pattern:
 
 ### Prerequisites
 
-- Rust 1.60+
+- Rust 1.80+
 - PostgreSQL
 - Docker (optional, for containerized deployment)
 
