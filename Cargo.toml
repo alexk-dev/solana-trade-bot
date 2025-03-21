@@ -2,6 +2,7 @@
 name = "solana-wallet-bot"
 version = "1.0.0"
 edition = "2021"
+description = "A Solana wallet and trading bot for Telegram"
 authors = ["Alex Kuleshov <alex@kuleshov.tech>"]
 repository = "https://github.com/alexk-dev/solana-wallet-bot"
 license = "SSPL-1.0"
