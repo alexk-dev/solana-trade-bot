@@ -5,11 +5,9 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
-// Константы для токенов
 pub const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
 pub const USDC_MINT: &str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
-// Режимы обмена (точное входное или выходное количество)
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub enum SwapMode {
     #[default]
@@ -112,7 +110,6 @@ pub struct JupiterToken {
     pub logo_uri: Option<String>,
 }
 
-// Структура для ответа API цен Jupiter
 #[derive(Debug, Deserialize)]
 pub struct JupiterPriceResponse {
     data: HashMap<String, TokenData>,
@@ -130,7 +127,6 @@ pub struct TokenData {
     price: f64,
 }
 
-// Конфигурация для получения котировки
 #[derive(Default, Debug, Clone)]
 pub struct QuoteParams {
     pub input_mint: String,
@@ -142,7 +138,6 @@ pub struct QuoteParams {
     pub max_accounts: Option<u64>,
 }
 
-// Ответ API с котировкой
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QuoteResponse {
@@ -160,7 +155,6 @@ pub struct QuoteResponse {
     pub time_taken: Option<f64>,
 }
 
-// Информация о маршруте обмена
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RoutePlan {
@@ -168,7 +162,6 @@ pub struct RoutePlan {
     pub percent: u8,
 }
 
-// Детали обмена токенов
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SwapInfo {
@@ -182,14 +175,12 @@ pub struct SwapInfo {
     pub fee_mint: String,
 }
 
-// Приоритизация комиссий
 #[derive(Debug, Clone)]
 pub enum PrioritizationFeeLamports {
     Auto,
     Exact { lamports: u64 },
 }
 
-// Запрос на выполнение свопа
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SwapRequest {
@@ -211,7 +202,6 @@ pub struct SwapRequest {
     pub quote_response: QuoteResponse,
 }
 
-// Обертка для сериализации PrioritizationFeeLamports
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum PrioritizationFeeLamportsWrapper {

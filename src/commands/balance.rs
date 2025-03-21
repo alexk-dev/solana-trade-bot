@@ -34,21 +34,14 @@ impl CommandHandler for BalanceCommand {
         let db_pool = services.db_pool();
         let solana_client = services.solana_client();
         let price_service = services.price_service();
-
-        // Create interactor
         let interactor = Arc::new(BalanceInteractorImpl::new(
             db_pool,
             solana_client,
             price_service,
         ));
-
-        // Create view
         let view = Arc::new(TelegramBalanceView::new(bot, chat_id));
-
-        // Create presenter
         let presenter = BalancePresenterImpl::new(interactor, view);
 
-        // Execute the use case via presenter
         presenter.show_balances(telegram_id).await
     }
 }

@@ -22,7 +22,6 @@ use crate::solana::wallet::parse_pubkey;
 pub async fn get_token_balances(client: &RpcClient, address: &str) -> Result<Vec<TokenBalance>> {
     let pubkey: Pubkey = parse_pubkey(address)?;
 
-    // 1) The list of token accounts is returned as UiAccount
     let token_accounts: Vec<RpcKeyedAccount> = client
         .get_token_accounts_by_owner(&pubkey, TokenAccountsFilter::ProgramId(spl_token::ID))
         .await
@@ -32,13 +31,6 @@ pub async fn get_token_balances(client: &RpcClient, address: &str) -> Result<Vec
 
     for keyed_account in token_accounts {
         let token_account_pubkey: Pubkey = parse_pubkey(&keyed_account.pubkey.to_string())?;
-        //
-        // let token_account = client.get_account(&token_account_pubkey).await?;
-
-        // let balance = client
-        //     .get_token_account_balance(&token_account_pubkey)
-        //     .await
-        //     .unwrap();
 
         let token_account = client
             .get_token_account(&token_account_pubkey)

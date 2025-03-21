@@ -38,7 +38,6 @@ impl CommandHandler for PriceCommand {
             let view = Arc::new(TelegramPriceView::new(bot, chat_id));
             let presenter = PricePresenterImpl::new(interactor, view);
 
-            // Execute the use case via presenter
             presenter.show_token_price(token).await
         } else {
             bot.send_message(

@@ -66,7 +66,7 @@ pub fn validate_swap_params(
     }
 
     // Validate tokens
-    let supported_tokens = ["SOL", "USDC", "USDT", "RAY"];
+    let supported_tokens = ["SOL", "USDC", "USDT"];
 
     if !supported_tokens.contains(&source_token) {
         return Err(anyhow!("Unsupported source token: {}", source_token));

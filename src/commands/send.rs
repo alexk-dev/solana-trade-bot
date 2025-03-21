@@ -167,7 +167,6 @@ pub async fn receive_confirmation(
             // Reset dialogue state
             dialogue.update(State::Start).await?;
 
-            // Create VIPER components
             let interactor = Arc::new(SendInteractorImpl::new(
                 services.db_pool(),
                 services.solana_client(),
@@ -175,7 +174,6 @@ pub async fn receive_confirmation(
             let view = Arc::new(TelegramSendView::new(bot.clone(), chat_id));
             let presenter = SendPresenterImpl::new(interactor, view);
 
-            // Handle the confirmation
             presenter
                 .handle_confirmation(text, &recipient, amount, &token, telegram_id)
                 .await?;

@@ -66,13 +66,11 @@ impl CommandHandler for AddressCommand {
 
         info!("Address command received from Telegram ID: {}", telegram_id);
 
-        // Create VIPER components
         let db_pool = services.db_pool();
         let interactor = Arc::new(WalletInteractorImpl::new(db_pool));
         let view = Arc::new(TelegramWalletView::new(bot, chat_id));
         let presenter = WalletPresenterImpl::new(interactor, view);
 
-        // Execute the use case via presenter
         presenter.show_wallet_address(telegram_id).await
     }
 }

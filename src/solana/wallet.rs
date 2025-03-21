@@ -11,9 +11,6 @@ pub fn generate_wallet() -> Result<(String, String, String)> {
     //    (enough for a 12-word BIP39 mnemonic).
     let mut entropy = [0u8; 16];
     rng().fill_bytes(&mut entropy);
-    // If 'rng()' doesn't work, use:
-    // let mut rng = thread_rng();
-    // rng.fill_bytes(&mut entropy);
 
     // 2) Form a 12-word mnemonic (English).
     let mnemonic = Mnemonic::from_entropy_in(Language::English, &entropy)

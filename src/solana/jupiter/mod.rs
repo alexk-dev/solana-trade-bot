@@ -1,4 +1,3 @@
-// src/solana/jupiter/mod.rs
 pub mod config;
 pub mod models;
 pub mod price_service;
@@ -7,7 +6,7 @@ pub mod route_service;
 pub mod swap_service;
 pub mod token_repository;
 
-// Реэкспорт для удобства использования
+// Re-export commonly used items
 pub use models::{
     JupiterToken, PrioritizationFeeLamports, PrioritizationFeeLamportsWrapper, QuoteParams,
     QuoteResponse, RoutePlan, SwapInfo, SwapMode, SwapRequest, SwapResponse, SOL_MINT, USDC_MINT,

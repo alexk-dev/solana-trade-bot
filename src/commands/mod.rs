@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::sync::Arc;
 use teloxide::{dispatching::dialogue::InMemStorage, prelude::*};
 
-use crate::di::ServiceContainer; // Import the service container
+use crate::di::ServiceContainer;
 use crate::entity::State;
 use teloxide::dispatching::dialogue::Dialogue;
 type MyDialogue = Dialogue<State, InMemStorage<State>>;
