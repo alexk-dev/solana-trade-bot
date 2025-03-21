@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
-/// Сервис для выполнения операций свопа с использованием Jupiter
+/// Service for performing swap operations using Jupiter
 pub struct SwapService<T: TokenRepository, Q: QuoteService> {
     token_repository: T,
     quote_service: Q,
@@ -25,7 +25,7 @@ pub struct SwapService<T: TokenRepository, Q: QuoteService> {
 }
 
 impl<T: TokenRepository, Q: QuoteService> SwapService<T, Q> {
-    /// Создает новый экземпляр сервиса свопа с использованием официального SDK
+    /// Creates a new swap service instance using the official SDK
     pub fn new(token_repository: T, quote_service: Q) -> Self {
         Self {
             token_repository,
@@ -34,7 +34,7 @@ impl<T: TokenRepository, Q: QuoteService> SwapService<T, Q> {
         }
     }
 
-    /// Подготавливает и получает транзакцию свопа
+    /// Prepares and retrieves a swap transaction
     pub async fn prepare_swap(
         &self,
         amount: f64,
@@ -43,7 +43,7 @@ impl<T: TokenRepository, Q: QuoteService> SwapService<T, Q> {
         slippage: f64,
         user_public_key: &str,
     ) -> Result<SwapResponse> {
-        // Получаем котировку
+        // Get quote
         debug!(
             "Getting swap quote for {} {} to {}",
             amount, source_token, target_token
@@ -53,11 +53,11 @@ impl<T: TokenRepository, Q: QuoteService> SwapService<T, Q> {
             .get_swap_quote(amount, source_token, target_token, slippage)
             .await?;
 
-        // Парсим pubkey пользователя
+        // Parse user's pubkey
         let user_pubkey = Pubkey::from_str(user_public_key)
             .map_err(|e| anyhow!("Invalid user public key: {}", e))?;
 
-        // Создаем запрос свопа
+        // Create swap request
         let swap_request = JupiterSwapRequest {
             user_public_key: user_pubkey,
             quote_response: quote_response.clone(),
@@ -69,7 +69,7 @@ impl<T: TokenRepository, Q: QuoteService> SwapService<T, Q> {
             user_public_key
         );
 
-        // Получаем транзакцию свопа через SDK
+        // Get swap transaction via SDK
         let swap_response = self
             .jupiter_client
             .swap(&swap_request, Some(HashMap::new()))
@@ -84,7 +84,7 @@ impl<T: TokenRepository, Q: QuoteService> SwapService<T, Q> {
         Ok(swap_response)
     }
 
-    /// Выполняет (подписывает и отправляет) транзакцию свопа в сеть
+    /// Executes (signs and sends) the swap transaction to the network
     pub async fn execute_swap_transaction(
         &self,
         solana_client: &Arc<RpcClient>,
@@ -98,7 +98,7 @@ impl<T: TokenRepository, Q: QuoteService> SwapService<T, Q> {
             bincode::deserialize(&swap_response.swap_transaction)
                 .map_err(|e| anyhow!("Failed to deserialize transaction: {}", e))?;
 
-        // Подписываем транзакцию
+        // Sign the transaction
         let signed_versioned_transaction =
             VersionedTransaction::try_new(versioned_transaction.message, &[keypair])
                 .map_err(|e| anyhow!("Failed to sign transaction: {}", e))?;
@@ -115,7 +115,7 @@ impl<T: TokenRepository, Q: QuoteService> SwapService<T, Q> {
         Ok(signature.to_string())
     }
 
-    /// Получает аудит транзакции свопа
+    /// Gets a swap transaction audit
     pub async fn get_swap_instructions(
         &self,
         amount: f64,
@@ -124,24 +124,24 @@ impl<T: TokenRepository, Q: QuoteService> SwapService<T, Q> {
         slippage: f64,
         user_public_key: &str,
     ) -> Result<SwapInstructionsResponse> {
-        // Получаем котировку
+        // Get quote
         let quote_response = self
             .quote_service
             .get_swap_quote(amount, source_token, target_token, slippage)
             .await?;
 
-        // Парсим pubkey пользователя
+        // Parse user's pubkey
         let user_pubkey = Pubkey::from_str(user_public_key)
             .map_err(|e| anyhow!("Invalid user public key: {}", e))?;
 
-        // Создаем запрос на инструкции свопа
+        // Create swap instructions request
         let swap_request = JupiterSwapRequest {
             user_public_key: user_pubkey,
             quote_response,
             config: TransactionConfig::default(),
         };
 
-        // Получаем инструкции свопа через SDK
+        // Get swap instructions via SDK
         let swap_instructions = self
             .jupiter_client
             .swap_instructions(&swap_request)
@@ -149,5 +149,17 @@ impl<T: TokenRepository, Q: QuoteService> SwapService<T, Q> {
             .map_err(|e| anyhow!("Failed to get swap instructions: {}", e))?;
 
         Ok(swap_instructions)
+    }
+
+    pub async fn get_swap_quote(
+        &self,
+        amount: f64,
+        source_token: &str,
+        target_token: &str,
+        slippage: f64,
+    ) -> Result<QuoteResponse> {
+        self.quote_service
+            .get_swap_quote(amount, source_token, target_token, slippage)
+            .await
     }
 }

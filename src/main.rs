@@ -1,23 +1,27 @@
 use dotenv::dotenv;
 use env_logger;
 use log::{error, info};
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use sqlx::postgres::PgPoolOptions;
 use std::env;
+use std::sync::Arc;
 use teloxide::{prelude::*, Bot};
 use tokio;
 
 mod commands;
-mod db;
-mod di; // New module for dependency injection
+mod di;
+mod entity;
+mod interactor;
 mod model;
+mod presenter;
 mod qrcodeutils;
+mod router;
 mod solana;
 mod utils;
+mod view;
 
-use di::ServiceContainer; // Import the service container
+use di::ServiceContainer;
+use router::{Router, TelegramRouter};
 use teloxide::dispatching::dialogue::InMemStorage;
-
-type MyDialogue = Dialogue<model::State, InMemStorage<model::State>>;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -47,12 +51,6 @@ async fn main() -> anyhow::Result<()> {
         .await
         .expect("Failed to create database connection pool");
 
-    let db_pool_for_tg = PgPoolOptions::new()
-        .max_connections(10)
-        .connect(&database_url)
-        .await
-        .expect("Failed to create database connection pool");
-
     // Run migrations
     info!("Running database migrations...");
     match sqlx::migrate!("./migrations")
@@ -75,30 +73,23 @@ async fn main() -> anyhow::Result<()> {
 
     // Create service container
     let service_container = ServiceContainer::new(db_pool, solana_client.clone());
-    let service_container = std::sync::Arc::new(service_container);
+    let service_container = Arc::new(service_container);
 
-    // In-memory storage (could replace with persistent storage if needed)
-    let storage = InMemStorage::<model::State>::new();
+    // In-memory storage for dialogues
+    let storage = InMemStorage::<entity::State>::new();
 
-    // Setup command handlers
-    let handler = commands::setup_command_handlers();
+    // Create and setup the router
+    let router = TelegramRouter::new(service_container.clone());
+    let handler = router.setup_handlers();
 
-    // Create dependency tree with the service container
-    let dependencies = dptree::deps![
-        db_pool_for_tg,
-        solana_client.clone(),
-        service_container,
-        storage
-    ];
-
-    // Build dispatcher with control-C handling enabled
+    // Build dispatcher with dependency injections and control-C handling
     let mut dispatcher = Dispatcher::builder(bot, handler)
-        .dependencies(dependencies)
+        .dependencies(dptree::deps![service_container, storage])
         .enable_ctrlc_handler()
         .build();
 
     info!("Bot is running!");
-    dispatcher.dispatch().await; // Launch dispatcher
+    dispatcher.dispatch().await;
 
     Ok(())
 }

@@ -1,4 +1,4 @@
-use crate::model::BotError;
+use crate::entity::BotError;
 use crate::solana::tokens::constants::ESTIMATED_SOL_FEE;
 use crate::solana::tokens::transaction::send_transaction;
 use crate::solana::utils::{lamports_to_sol, sol_to_lamports};

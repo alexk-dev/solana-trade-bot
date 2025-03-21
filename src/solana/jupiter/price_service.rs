@@ -6,7 +6,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::solana::jupiter::models::{Token, TokenPrice};
+use crate::entity::{Token, TokenPrice};
 use crate::solana::jupiter::quote_service::QuoteService;
 use crate::solana::jupiter::token_repository::TokenRepository;
 use crate::solana::jupiter::Config;

@@ -1,5 +1,5 @@
 // src/repositories/token_repository.rs
-use crate::solana::jupiter::models::Token;
+use crate::entity::Token;
 use crate::solana::jupiter::{JupiterToken, SOL_MINT, USDC_MINT};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;

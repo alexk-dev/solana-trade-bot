@@ -1,15 +1,15 @@
 use anyhow::Result;
 use log::{error, info};
 use solana_client::nonblocking::rpc_client::RpcClient;
-use sqlx::PgPool;
 use std::sync::Arc;
 use teloxide::prelude::*;
 
-use super::CommandHandler;
+use super::{CommandHandler, MyDialogue};
 use crate::di::ServiceContainer;
-use crate::model::State;
-use crate::MyDialogue;
-use crate::{db, solana, utils};
+use crate::entity::State;
+use crate::interactor::send_interactor::{SendInteractor, SendInteractorImpl};
+use crate::presenter::send_presenter::{SendPresenter, SendPresenterImpl};
+use crate::view::send_view::{SendView, TelegramSendView};
 
 pub struct SendCommand;
 
@@ -27,40 +27,66 @@ impl CommandHandler for SendCommand {
         msg: Message,
         dialogue: Option<MyDialogue>,
         _solana_client: Option<Arc<RpcClient>>,
-        _services: Arc<ServiceContainer>,
+        services: Arc<ServiceContainer>,
     ) -> Result<()> {
         let dialogue = dialogue.ok_or_else(|| anyhow::anyhow!("Dialogue context not provided"))?;
+        let chat_id = msg.chat.id;
+
         info!("Send command initiated");
 
+        let db_pool = services.db_pool();
+        let solana_client = services.solana_client();
+        let interactor = Arc::new(SendInteractorImpl::new(db_pool, solana_client));
+        let view = Arc::new(TelegramSendView::new(bot, chat_id));
+        let presenter = SendPresenterImpl::new(interactor, view);
+
+        // Start the send flow
         dialogue.update(State::AwaitingRecipientAddress).await?;
-        bot.send_message(msg.chat.id, "Enter the recipient's Solana address:")
-            .await?;
+        presenter.start_send_flow().await?;
 
         Ok(())
     }
 }
 
-pub async fn receive_recipient_address(bot: Bot, msg: Message, dialogue: MyDialogue) -> Result<()> {
+// Handler for the recipient address state
+pub async fn receive_recipient_address(
+    bot: Bot,
+    msg: Message,
+    dialogue: MyDialogue,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
     if let Some(address_text) = msg.text() {
-        // Validate the address format
-        if utils::validate_solana_address(address_text) {
-            dialogue
-                .update(State::AwaitingAmount {
-                    recipient: address_text.to_string(),
-                })
-                .await?;
+        let chat_id = msg.chat.id;
 
-            bot.send_message(
-                msg.chat.id,
-                "Enter the amount to send (example: 0.5 SOL or 100 USDC):",
-            )
-            .await?;
+        let db_pool = services.db_pool();
+        let solana_client = services.solana_client();
+        let interactor = Arc::new(SendInteractorImpl::new(db_pool, solana_client));
+        let view = Arc::new(TelegramSendView::new(bot.clone(), chat_id));
+        let presenter = SendPresenterImpl::new(interactor, view);
+
+        // Handle the recipient address
+        if let Ok(is_valid) = presenter.validate_address(address_text).await {
+            if is_valid {
+                dialogue
+                    .update(State::AwaitingAmount {
+                        recipient: address_text.to_string(),
+                    })
+                    .await?;
+                bot.send_message(
+                    chat_id,
+                    "Enter the amount to send (example: 0.5 SOL or 100 USDC):",
+                )
+                .await?;
+            } else {
+                bot.send_message(
+                    chat_id,
+                    "Invalid Solana address. Please check the address and try again:",
+                )
+                .await?;
+            }
         } else {
-            bot.send_message(
-                msg.chat.id,
-                "Invalid Solana address. Please check the address and try again:",
-            )
-            .await?;
+            bot.send_message(chat_id, "Error validating address. Please try again:")
+                .await?;
         }
     } else {
         bot.send_message(msg.chat.id, "Please enter the recipient's address as text:")
@@ -70,38 +96,48 @@ pub async fn receive_recipient_address(bot: Bot, msg: Message, dialogue: MyDialo
     Ok(())
 }
 
+// Handler for the amount state
 pub async fn receive_amount(
     bot: Bot,
     msg: Message,
     state: State,
     dialogue: MyDialogue,
+    services: Arc<ServiceContainer>,
 ) -> Result<()> {
     if let State::AwaitingAmount { recipient } = state {
         if let Some(amount_text) = msg.text() {
-            // Parse amount and token from the input
-            if let Some((amount, token)) = utils::parse_amount_and_token(amount_text) {
-                dialogue
-                    .update(State::AwaitingConfirmation {
-                        recipient: recipient.clone(),
-                        amount,
-                        token: token.to_string(),
-                    })
-                    .await?;
+            let chat_id = msg.chat.id;
 
-                bot.send_message(
-                    msg.chat.id,
-                    format!(
-                        "Confirm sending {} {} to address {} (yes/no):",
-                        amount, token, recipient
-                    ),
-                )
-                .await?;
-            } else {
-                bot.send_message(
-                    msg.chat.id,
-                    "Invalid amount format. Please enter in the format '0.5 SOL' or '100 USDC':",
-                )
-                .await?;
+            let db_pool = services.db_pool();
+            let solana_client = services.solana_client();
+            let interactor = Arc::new(SendInteractorImpl::new(db_pool, solana_client));
+
+            // Handle the amount
+            match interactor.parse_amount_and_token(amount_text).await {
+                Ok((amount, token)) => {
+                    dialogue
+                        .update(State::AwaitingConfirmation {
+                            recipient: recipient.clone(),
+                            amount,
+                            token: token.clone(),
+                        })
+                        .await?;
+
+                    bot.send_message(
+                        chat_id,
+                        format!(
+                            "Confirm sending {} {} to address {} (yes/no):",
+                            amount, token, recipient
+                        ),
+                    )
+                    .await?;
+                }
+                Err(e) => {
+                    bot.send_message(
+                        chat_id,
+                        format!("Invalid amount format: {}. Please enter in the format '0.5 SOL' or '100 USDC':", e),
+                    ).await?;
+                }
             }
         } else {
             bot.send_message(msg.chat.id, "Please enter the amount to send:")
@@ -112,13 +148,12 @@ pub async fn receive_amount(
     Ok(())
 }
 
+// Handler for the confirmation state
 pub async fn receive_confirmation(
     bot: Bot,
     msg: Message,
     state: State,
     dialogue: MyDialogue,
-    db_pool: PgPool,
-    solana_client: Arc<RpcClient>,
     services: Arc<ServiceContainer>,
 ) -> Result<()> {
     if let State::AwaitingConfirmation {
@@ -128,119 +163,24 @@ pub async fn receive_confirmation(
     } = state
     {
         if let Some(text) = msg.text() {
-            let confirmation = text.to_lowercase();
+            let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
+            let chat_id = msg.chat.id;
 
-            if confirmation == "yes" {
-                let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
+            // Reset dialogue state
+            dialogue.update(State::Start).await?;
 
-                // Reset dialogue state
-                dialogue.update(State::Start).await?;
+            // Create VIPER components
+            let interactor = Arc::new(SendInteractorImpl::new(
+                services.db_pool(),
+                services.solana_client(),
+            ));
+            let view = Arc::new(TelegramSendView::new(bot.clone(), chat_id));
+            let presenter = SendPresenterImpl::new(interactor, view);
 
-                // Send "processing" message
-                let processing_msg = bot
-                    .send_message(msg.chat.id, "Sending funds... Please wait.")
-                    .await?;
-
-                // We can use either directly passed parameters or get them from services container
-                let db_pool = services.db_pool();
-                let solana_client = services.solana_client();
-
-                // Get user wallet info
-                let user = db::get_user_by_telegram_id(&db_pool, telegram_id).await?;
-
-                match user.solana_address {
-                    Some(sender_address) => {
-                        // Get private key
-                        if let Some(keypair_base58) = user.encrypted_private_key {
-                            let keypair = solana::keypair_from_base58(&keypair_base58)?;
-
-                            // Send transaction
-                            let result = if token.to_uppercase() == "SOL" {
-                                solana::send_sol(&solana_client, &keypair, &recipient, amount).await
-                            } else {
-                                solana::send_spl_token(
-                                    &solana_client,
-                                    &keypair,
-                                    &recipient,
-                                    &token,
-                                    amount,
-                                )
-                                .await
-                            };
-
-                            match result {
-                                Ok(signature) => {
-                                    // Record transaction to database
-                                    db::record_transaction(
-                                        &db_pool,
-                                        telegram_id,
-                                        &recipient,
-                                        amount,
-                                        &token,
-                                        &Some(signature.clone()),
-                                        "SUCCESS",
-                                    )
-                                    .await?;
-
-                                    // Send success message
-                                    bot.edit_message_text(
-                                        msg.chat.id,
-                                        processing_msg.id,
-                                        format!(
-                                            "✅ Funds sent successfully. Tx Signature: {}",
-                                            signature
-                                        ),
-                                    )
-                                    .await?;
-                                }
-                                Err(e) => {
-                                    error!("Failed to send transaction: {}", e);
-
-                                    // Record failed transaction
-                                    db::record_transaction(
-                                        &db_pool,
-                                        telegram_id,
-                                        &recipient,
-                                        amount,
-                                        &token,
-                                        &None::<String>,
-                                        "FAILED",
-                                    )
-                                    .await?;
-
-                                    // Send error message
-                                    bot.edit_message_text(
-                                        msg.chat.id,
-                                        processing_msg.id,
-                                        format!("❌ Error sending funds: {}", e),
-                                    )
-                                    .await?;
-                                }
-                            }
-                        } else {
-                            bot.edit_message_text(
-                                msg.chat.id,
-                                processing_msg.id,
-                                "❌ Error: Private key not found for your wallet.",
-                            )
-                            .await?;
-                        }
-                    }
-                    None => {
-                        bot.edit_message_text(
-                            msg.chat.id,
-                            processing_msg.id,
-                            "❌ You don't have a wallet yet. Use /create_wallet to create a new wallet."
-                        ).await?;
-                    }
-                }
-            } else {
-                // Transaction cancelled
-                dialogue.update(State::Start).await?;
-
-                bot.send_message(msg.chat.id, "Transaction cancelled.")
-                    .await?;
-            }
+            // Handle the confirmation
+            presenter
+                .handle_confirmation(text, &recipient, amount, &token, telegram_id)
+                .await?;
         }
     }
 

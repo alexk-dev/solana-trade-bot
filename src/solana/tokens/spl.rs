@@ -10,7 +10,7 @@ use spl_associated_token_account::{
 };
 use spl_token::{instruction as token_instruction, ID as TOKEN_PROGRAM_ID};
 
-use crate::model::{BotError, TokenBalance};
+use crate::entity::{BotError, TokenBalance};
 use crate::solana::jupiter::token_repository::JupiterTokenRepository;
 use crate::solana::jupiter::TokenRepository;
 use crate::solana::tokens::constants::{RAY_MINT, USDC_MINT, USDT_MINT};

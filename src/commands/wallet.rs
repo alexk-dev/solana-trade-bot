@@ -1,18 +1,14 @@
-// src/commands/wallet.rs
 use anyhow::Result;
 use log::info;
 use solana_client::nonblocking::rpc_client::RpcClient;
-use sqlx::PgPool;
 use std::sync::Arc;
-use teloxide::{
-    prelude::*,
-    types::{InputFile, ParseMode},
-};
+use teloxide::prelude::*;
 
-use super::CommandHandler;
+use super::{CommandHandler, MyDialogue};
 use crate::di::ServiceContainer;
-use crate::MyDialogue;
-use crate::{db, qrcodeutils, solana, utils};
+use crate::interactor::wallet_interactor::{WalletInteractor, WalletInteractorImpl};
+use crate::presenter::wallet_presenter::{WalletPresenter, WalletPresenterImpl};
+use crate::view::wallet_view::{TelegramWalletView, WalletView};
 
 pub struct CreateWalletCommand;
 
@@ -32,52 +28,21 @@ impl CommandHandler for CreateWalletCommand {
         _solana_client: Option<Arc<RpcClient>>,
         services: Arc<ServiceContainer>,
     ) -> Result<()> {
-        let db_pool = services.db_pool();
         let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
+        let chat_id = msg.chat.id;
 
         info!(
             "Create wallet command received from Telegram ID: {}",
             telegram_id
         );
 
-        // Check if user already has a wallet
-        let user = db::get_user_by_telegram_id(&db_pool, telegram_id)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to get user: {}", e))?;
+        let db_pool = services.db_pool();
+        let interactor = Arc::new(WalletInteractorImpl::new(db_pool));
+        let view = Arc::new(TelegramWalletView::new(bot, chat_id));
+        let presenter = WalletPresenterImpl::new(interactor, view);
 
-        if user.solana_address.is_some() {
-            bot.send_message(
-                msg.chat.id,
-                "У вас уже есть кошелек Solana. Используйте /address чтобы увидеть адрес, или /balance для проверки баланса."
-            )
-                .await?;
-
-            return Ok(());
-        }
-
-        // Generate new wallet
-        let (mnemonic, keypair, address) = solana::generate_wallet()?;
-
-        // Save wallet info to the database
-        db::save_wallet_info(&db_pool, telegram_id, &address, &keypair, &mnemonic)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to save wallet info: {}", e))?;
-
-        // Send wallet info to user
-        bot.send_message(
-            msg.chat.id,
-            format!(
-                "Ваш Solana-кошелёк успешно создан!\n\n\
-                Публичный адрес: `{}`\n\n\
-                Мнемоническая фраза: `{}`\n\n\
-                *Важно:* Сохраните мнемоническую фразу – она нужна для восстановления доступа!",
-                address, mnemonic
-            ),
-        )
-        .parse_mode(ParseMode::Markdown)
-        .await?;
-
-        Ok(())
+        // Execute the use case via presenter
+        presenter.create_wallet(telegram_id).await
     }
 }
 
@@ -99,45 +64,18 @@ impl CommandHandler for AddressCommand {
         _solana_client: Option<Arc<RpcClient>>,
         services: Arc<ServiceContainer>,
     ) -> Result<()> {
-        let db_pool = services.db_pool();
         let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
+        let chat_id = msg.chat.id;
 
         info!("Address command received from Telegram ID: {}", telegram_id);
 
-        // Get user's wallet address
-        let user = db::get_user_by_telegram_id(&db_pool, telegram_id)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to get user: {}", e))?;
+        // Create VIPER components
+        let db_pool = services.db_pool();
+        let interactor = Arc::new(WalletInteractorImpl::new(db_pool));
+        let view = Arc::new(TelegramWalletView::new(bot, chat_id));
+        let presenter = WalletPresenterImpl::new(interactor, view);
 
-        if let Some(address) = user.solana_address {
-            // Generate QR code
-            let qr_svg_data = utils::generate_qr_code(&address)?;
-
-            // Send address to user
-            bot.send_message(
-                msg.chat.id,
-                format!("Адрес вашего Solana-кошелька:\n\n`{}`", address),
-            )
-            .parse_mode(ParseMode::Markdown)
-            .await?;
-
-            // Send QR code as photo
-            let png_data: Vec<u8> = qrcodeutils::convert_svg_to_png(&qr_svg_data)?;
-
-            bot.send_photo(
-                msg.chat.id,
-                InputFile::memory(png_data).file_name("address.png"),
-            )
-            .caption("QR-код для вашего адреса")
-            .await?;
-        } else {
-            bot.send_message(
-                msg.chat.id,
-                "У вас еще нет кошелька. Используйте /create_wallet чтобы создать новый кошелек.",
-            )
-            .await?;
-        }
-
-        Ok(())
+        // Execute the use case via presenter
+        presenter.show_wallet_address(telegram_id).await
     }
 }

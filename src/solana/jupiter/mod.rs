@@ -10,8 +10,7 @@ pub mod token_repository;
 // Реэкспорт для удобства использования
 pub use models::{
     JupiterToken, PrioritizationFeeLamports, PrioritizationFeeLamportsWrapper, QuoteParams,
-    QuoteResponse, RoutePlan, SwapInfo, SwapMode, SwapRequest, SwapResponse, Token, TokenPrice,
-    SOL_MINT, USDC_MINT,
+    QuoteResponse, RoutePlan, SwapInfo, SwapMode, SwapRequest, SwapResponse, SOL_MINT, USDC_MINT,
 };
 
 pub use config::Config;

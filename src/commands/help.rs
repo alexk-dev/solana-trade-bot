@@ -1,10 +1,7 @@
-// src/commands/help.rs
-use super::CommandHandler;
+use super::{CommandHandler, MyDialogue};
 use crate::di::ServiceContainer;
-use crate::MyDialogue;
 use anyhow::Result;
 use solana_client::nonblocking::rpc_client::RpcClient;
-use sqlx::PgPool;
 use std::sync::Arc;
 use teloxide::prelude::*;
 
@@ -28,15 +25,15 @@ impl CommandHandler for HelpCommand {
     ) -> Result<()> {
         bot.send_message(
             msg.chat.id,
-            "Доступные команды:\n\
-            /start - Начать работу с ботом\n\
-            /create_wallet - Создать новый кошелек Solana\n\
-            /address - Показать адрес вашего кошелька и QR-код\n\
-            /balance - Проверить баланс вашего кошелька\n\
-            /send - Отправить средства на другой адрес\n\
-            /swap <сумма> <исходный_токен> <целевой_токен> [<проскальзывание>%] - Обменять токены через Raydium DEX (заглушка)\n\
-            /price <символ_токена> - Получить текущую цену токена\n\
-            /help - Показать эту справку"
+            "Available commands:\n\
+            /start - Start working with the bot\n\
+            /create_wallet - Create a new Solana wallet\n\
+            /address - Show your wallet address and QR code\n\
+            /balance - Check your wallet balance\n\
+            /send - Send funds to another address\n\
+            /swap <amount> <source_token> <target_token> [<slippage>%] - Swap tokens via Raydium DEX (placeholder)\n\
+            /price <token_symbol> - Get current token price\n\
+            /help - Show this help"
         ).await?;
 
         Ok(())

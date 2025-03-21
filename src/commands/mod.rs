@@ -4,8 +4,9 @@ use std::sync::Arc;
 use teloxide::{dispatching::dialogue::InMemStorage, prelude::*, types::ParseMode};
 
 use crate::di::ServiceContainer; // Import the service container
-use crate::model::State;
-use crate::MyDialogue;
+use crate::entity::State;
+use teloxide::dispatching::dialogue::Dialogue;
+type MyDialogue = Dialogue<State, InMemStorage<State>>;
 
 pub mod balance;
 pub mod help;
@@ -140,16 +141,7 @@ pub fn setup_command_handlers() -> teloxide::dispatching::UpdateHandler<anyhow::
                      db_pool: PgPool,
                      solana_client: Arc<solana_client::nonblocking::rpc_client::RpcClient>,
                      services: Arc<ServiceContainer>| async move {
-                        send::receive_confirmation(
-                            bot,
-                            msg,
-                            state,
-                            dialogue,
-                            db_pool,
-                            solana_client,
-                            services,
-                        )
-                        .await
+                        send::receive_confirmation(bot, msg, state, dialogue, services).await
                     },
                 ),
             )

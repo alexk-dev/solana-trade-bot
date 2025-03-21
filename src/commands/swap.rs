@@ -1,21 +1,15 @@
-// src/commands/swap.rs
 use anyhow::Result;
 use log;
-use rust_decimal::prelude::ToPrimitive;
 use solana_client::nonblocking::rpc_client::RpcClient;
-use sqlx::PgPool;
 use std::sync::Arc;
 use teloxide::prelude::*;
 
-use super::CommandHandler;
-use crate::db;
+use super::{CommandHandler, MyDialogue};
 use crate::di::ServiceContainer;
-use crate::model::State;
-use crate::solana;
-use crate::solana::jupiter::quote_service::JupiterQuoteService;
-use crate::solana::jupiter::token_repository::JupiterTokenRepository;
-use crate::solana::jupiter::{QuoteService, SwapService, TokenRepository};
-use crate::MyDialogue;
+use crate::entity::State;
+use crate::interactor::swap_interactor::SwapInteractorImpl;
+use crate::presenter::swap_presenter::{SwapPresenter, SwapPresenterImpl};
+use crate::view::swap_view::TelegramSwapView;
 
 pub struct SwapCommand;
 
@@ -25,7 +19,7 @@ impl CommandHandler for SwapCommand {
     }
 
     fn description() -> &'static str {
-        "swap tokens via Raydium (format: /swap amount from_token to_token slippage%)"
+        "swap tokens via Jupiter DEX (format: /swap amount from_token to_token slippage%)"
     }
 
     async fn execute(
@@ -35,265 +29,45 @@ impl CommandHandler for SwapCommand {
         solana_client: Option<Arc<RpcClient>>,
         services: Arc<ServiceContainer>,
     ) -> Result<()> {
-        let db_pool = services.db_pool();
-        let solana_client =
-            solana_client.ok_or_else(|| anyhow::anyhow!("Solana client not provided"))?;
         let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
+        let chat_id = msg.chat.id;
 
-        // Get full command text
+        // Get command parts
         let command_parts: Vec<&str> = msg.text().unwrap_or("").split_whitespace().collect();
 
-        if command_parts.len() >= 4 {
-            // Parse swap parameters
-            let amount_str = command_parts[1];
-            let source_token = command_parts[2];
-            let target_token = command_parts[3];
+        // Create VIPER components
+        let db_pool = services.db_pool();
+        let solana_client = services.solana_client();
+        let swap_service = services.swap_service();
+        let token_repository = services.token_repository();
 
-            // Parse slippage (optional)
-            let slippage = if command_parts.len() >= 5
-                && command_parts[4].ends_with('%')
-                && command_parts[4].len() > 1
-            {
-                command_parts[4]
-                    .trim_end_matches('%')
-                    .parse::<f64>()
-                    .unwrap_or(0.5)
-                    / 100.0
-            } else {
-                0.005 // Default 0.5%
-            };
+        // Create interactor
+        let interactor = Arc::new(SwapInteractorImpl::new(
+            db_pool,
+            solana_client,
+            swap_service,
+            token_repository,
+        ));
 
-            // Parse amount
-            if let Ok(amount) = amount_str.parse::<f64>() {
-                // Get user wallet info
-                let user = db::get_user_by_telegram_id(&db_pool, telegram_id).await?;
+        // Create view
+        let view = Arc::new(TelegramSwapView::new(bot, chat_id));
 
-                if let (Some(address), Some(keypair_base58)) =
-                    (user.solana_address, user.encrypted_private_key)
-                {
-                    // Отправляем «processing» сообщение
-                    let processing_msg = bot
-                        .send_message(
-                            msg.chat.id,
-                            format!(
-                                "Подготовка обмена {} {} на {}... Получение котировки...",
-                                amount, source_token, target_token
-                            ),
-                        )
-                        .await?;
+        // Create presenter
+        let presenter = SwapPresenterImpl::new(interactor, view);
 
-                    // Создаем сервис свопа
-                    let token_repository = Arc::new(JupiterTokenRepository::new());
-                    let quote_service =
-                        Arc::new(JupiterQuoteService::new(JupiterTokenRepository::new()));
-                    let swap_service = Arc::new(SwapService::new(
-                        JupiterTokenRepository::new(),
-                        JupiterQuoteService::new(JupiterTokenRepository::new()),
-                    ));
-
-                    // Получаем котировку
-                    match quote_service
-                        .get_swap_quote(amount, &source_token, &target_token, slippage)
-                        .await
-                    {
-                        Ok(quote) => {
-                            // Получаем информацию о целевом токене
-                            let target_token_info =
-                                match token_repository.get_token_by_id(&target_token).await {
-                                    Ok(token) => token,
-                                    Err(_) => {
-                                        bot.edit_message_text(
-                                            msg.chat.id,
-                                            processing_msg.id,
-                                            format!(
-                                                "❌ Ошибка при получении информации о токене {}",
-                                                target_token
-                                            ),
-                                        )
-                                        .await?;
-                                        return Ok(());
-                                    }
-                                };
-
-                            let out_amount: f64 = quote.out_amount.to_f64().unwrap();
-
-                            // Применяем правильные decimals
-                            let out_amount_float =
-                                out_amount / 10f64.powi(target_token_info.decimals as i32);
-
-                            // Обновляем сообщение о прогрессе
-                            bot.edit_message_text(
-                                msg.chat.id,
-                                processing_msg.id,
-                                format!(
-                                    "Котировка получена:\n\
-                                    Вы отправите: {} {}\n\
-                                    Получите: ~{:.6} {}\n\
-                                    Проскальзывание: {}%\n\n\
-                                    Получение транзакции от Jupiter API...",
-                                    amount,
-                                    source_token,
-                                    out_amount_float,
-                                    target_token,
-                                    slippage * 100.0
-                                ),
-                            )
-                            .await?;
-
-                            // Подготавливаем и получаем транзакцию для свопа
-                            match swap_service
-                                .prepare_swap(
-                                    amount,
-                                    &source_token,
-                                    &target_token,
-                                    slippage,
-                                    &address,
-                                )
-                                .await
-                            {
-                                Ok(swap_response) => {
-                                    bot.edit_message_text(
-                                        msg.chat.id,
-                                        processing_msg.id,
-                                        "Подписываем и отправляем транзакцию...",
-                                    )
-                                    .await?;
-
-                                    // Получаем keypair из базы данных
-                                    let keypair = solana::keypair_from_base58(&keypair_base58)?;
-
-                                    // Выполняем свап (подписываем и отправляем транзакцию)
-                                    match swap_service
-                                        .execute_swap_transaction(
-                                            &solana_client,
-                                            &keypair,
-                                            &swap_response,
-                                        )
-                                        .await
-                                    {
-                                        Ok(signature) => {
-                                            // Запись транзакции в базу данных
-                                            db::record_transaction(
-                                                &db_pool,
-                                                telegram_id,
-                                                &target_token,
-                                                out_amount_float,
-                                                &target_token,
-                                                &Some(signature.clone()),
-                                                "SUCCESS",
-                                            )
-                                            .await?;
-
-                                            // Отправляем пользователю информацию об успешном свопе
-                                            bot.edit_message_text(
-                                                msg.chat.id,
-                                                processing_msg.id,
-                                                format!(
-                                                    "✅ Свап выполнен успешно!\n\
-                                                    Отправлено: {} {}\n\
-                                                    Получено: ~{:.6} {}\n\
-                                                    Подпись транзакции: {}\n\
-                                                    Проверить транзакцию: https://explorer.solana.com/tx/{}",
-                                                    amount,
-                                                    source_token,
-                                                    out_amount_float,
-                                                    target_token,
-                                                    signature,
-                                                    signature
-                                                )
-                                            ).await?;
-                                        }
-                                        Err(e) => {
-                                            log::error!("Error sending swap transaction: {:?}", e);
-
-                                            // Запись неудачной транзакции
-                                            db::record_transaction(
-                                                &db_pool,
-                                                telegram_id,
-                                                &target_token,
-                                                out_amount_float,
-                                                &target_token,
-                                                &None::<String>,
-                                                "FAILED",
-                                            )
-                                            .await?;
-
-                                            // Информируем пользователя об ошибке
-                                            bot.edit_message_text(
-                                                msg.chat.id,
-                                                processing_msg.id,
-                                                format!(
-                                                    "❌ Ошибка при отправке транзакции свопа:\n{}\n\n\
-                                                    Возможные причины:\n\
-                                                    - Недостаточно средств для комиссии\n\
-                                                    - Проблемы с сетью Solana\n\
-                                                    - Транзакция отклонена сетью",
-                                                    e
-                                                )
-                                            ).await?;
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    // Более подробный вывод ошибки
-                                    log::error!("Swap transaction error: {:?}", e);
-                                    bot.edit_message_text(
-                                        msg.chat.id,
-                                        processing_msg.id,
-                                        format!(
-                                            "❌ Ошибка при создании транзакции обмена:\n{}\n\n\
-                                            Возможные причины:\n\
-                                            - Неверный формат токенов\n\
-                                            - Недостаточно средств\n\
-                                            - Проблемы с подключением к API",
-                                            e
-                                        ),
-                                    )
-                                    .await?;
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            bot.edit_message_text(
-                                msg.chat.id,
-                                processing_msg.id,
-                                format!("❌ Ошибка при получении котировки: {}", e),
-                            )
-                            .await?;
-                        }
-                    }
-                } else {
-                    bot.send_message(
-                        msg.chat.id,
-                        "❌ У вас еще нет кошелька. Используйте /create_wallet чтобы создать новый кошелек."
-                    ).await?;
-                }
-            } else {
-                bot.send_message(
-                    msg.chat.id,
-                    "❌ Некорректный формат суммы. Используйте: /swap 1.5 SOL USDC 0.5%",
-                )
-                .await?;
-            }
-        } else {
-            // Show usage information
-            bot.send_message(
-                msg.chat.id,
-                "Используйте команду в формате: /swap <сумма> <исходный_токен> <целевой_токен> [<проскальзывание>%]\n\n\
-                 Пример: /swap 1.5 SOL USDC 0.5%"
-            ).await?;
-        }
-
-        Ok(())
+        // Execute the use case via presenter
+        presenter
+            .process_swap_command(telegram_id, command_parts)
+            .await
     }
 }
 
 pub async fn receive_swap_details(bot: Bot, msg: Message, dialogue: MyDialogue) -> Result<()> {
-    // Это заглушка, если вы хотели бы продолжить логику свопа через цепочку сообщений
+    // This is a placeholder for interactive swap via message chain
     dialogue.update(State::Start).await?;
     bot.send_message(
         msg.chat.id,
-        "Функция обмена токенов в разработке (placeholder).",
+        "The token swap feature via chat is under development (placeholder).",
     )
     .await?;
     Ok(())

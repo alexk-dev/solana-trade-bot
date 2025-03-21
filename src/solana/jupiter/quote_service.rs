@@ -7,7 +7,7 @@ use log::{debug, info};
 use solana_sdk::pubkey::Pubkey;
 use std::str::FromStr;
 
-/// Сервис для получения котировок обмена токенов
+/// Service for getting token exchange quotes
 #[async_trait]
 pub trait QuoteService: Send + Sync {
     async fn get_swap_quote(
@@ -25,7 +25,7 @@ pub struct JupiterQuoteService<T: TokenRepository> {
 }
 
 impl<T: TokenRepository> JupiterQuoteService<T> {
-    /// Создает новый экземпляр сервиса котировок
+    /// Creates a new quote service instance
     pub fn new(token_repository: T) -> Self {
         Self {
             token_repository,
@@ -36,7 +36,7 @@ impl<T: TokenRepository> JupiterQuoteService<T> {
 
 #[async_trait]
 impl<T: TokenRepository + Send + Sync> QuoteService for JupiterQuoteService<T> {
-    /// Получает котировку для обмена токенов
+    /// Gets a quote for token exchange
     async fn get_swap_quote(
         &self,
         amount: f64,
@@ -44,27 +44,27 @@ impl<T: TokenRepository + Send + Sync> QuoteService for JupiterQuoteService<T> {
         target_token: &str,
         slippage: f64,
     ) -> Result<QuoteResponse> {
-        // Получаем информацию о токенах для определения decimals
+        // Get token information to determine decimals
         let source_token_info = &self
             .token_repository
             .get_token_by_id(&source_token.to_string())
             .await?;
 
-        // Конвертируем amount с учетом decimals
+        // Convert amount considering decimals
         let decimals = source_token_info.decimals as u32;
         let amount_in = (amount * 10f64.powi(decimals as i32)) as u64;
 
-        // Конвертируем slippage в базисные пункты
+        // Convert slippage to basis points
         let slippage_bps = (slippage * 10000.0) as u16;
 
-        // Парсим строковые адреса токенов в Pubkey
+        // Parse token addresses to Pubkey
         let input_mint = Pubkey::from_str(source_token)
             .map_err(|e| anyhow!("Invalid source token address: {}", e))?;
 
         let output_mint = Pubkey::from_str(target_token)
             .map_err(|e| anyhow!("Invalid target token address: {}", e))?;
 
-        // Создаем запрос котировки через SDK
+        // Create quote request via SDK
         let quote_request = QuoteRequest {
             amount: amount_in,
             input_mint,
@@ -75,7 +75,7 @@ impl<T: TokenRepository + Send + Sync> QuoteService for JupiterQuoteService<T> {
 
         debug!("Requesting quote with parameters: {:?}", quote_request);
 
-        // Отправляем запрос через SDK
+        // Send request via SDK
         let quote_response = self
             .jupiter_client
             .quote(&quote_request)

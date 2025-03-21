@@ -1,15 +1,12 @@
-// src/commands/start.rs
 use anyhow::Result;
 use log::info;
 use solana_client::nonblocking::rpc_client::RpcClient;
-use sqlx::PgPool;
 use std::sync::Arc;
 use teloxide::{prelude::*, types::ParseMode};
 
-use super::CommandHandler;
-use crate::db;
+use super::{CommandHandler, MyDialogue};
 use crate::di::ServiceContainer;
-use crate::MyDialogue;
+use crate::interactor::db;
 
 pub struct StartCommand;
 
