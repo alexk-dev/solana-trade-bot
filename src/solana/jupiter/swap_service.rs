@@ -1,14 +1,14 @@
 use crate::solana::jupiter::quote_service::QuoteService;
 use crate::solana::jupiter::token_repository::TokenRepository;
 use anyhow::{anyhow, Result};
-use async_trait::async_trait;
+use bincode;
 use jupiter_swap_api_client::{
     quote::QuoteResponse,
     swap::{SwapInstructionsResponse, SwapRequest as JupiterSwapRequest, SwapResponse},
     transaction_config::TransactionConfig,
     JupiterSwapApiClient,
 };
-use log::{debug, error, info};
+use log::{debug, info};
 use reqwest::Client as HttpClient;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::transaction::VersionedTransaction;

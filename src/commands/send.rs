@@ -1,6 +1,5 @@
 use anyhow::Result;
-use log::{error, info};
-use solana_client::nonblocking::rpc_client::RpcClient;
+use log::info;
 use std::sync::Arc;
 use teloxide::prelude::*;
 
@@ -9,7 +8,7 @@ use crate::di::ServiceContainer;
 use crate::entity::State;
 use crate::interactor::send_interactor::{SendInteractor, SendInteractorImpl};
 use crate::presenter::send_presenter::{SendPresenter, SendPresenterImpl};
-use crate::view::send_view::{SendView, TelegramSendView};
+use crate::view::send_view::TelegramSendView;
 
 pub struct SendCommand;
 
@@ -26,7 +25,6 @@ impl CommandHandler for SendCommand {
         bot: Bot,
         msg: Message,
         dialogue: Option<MyDialogue>,
-        _solana_client: Option<Arc<RpcClient>>,
         services: Arc<ServiceContainer>,
     ) -> Result<()> {
         let dialogue = dialogue.ok_or_else(|| anyhow::anyhow!("Dialogue context not provided"))?;

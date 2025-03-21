@@ -7,21 +7,21 @@ use std::collections::HashMap;
 
 use crate::solana::jupiter::Config;
 
-/// Интерфейс для сервиса получения маршрутов обмена
+/// Interface for exchange route service
 #[async_trait]
 pub trait RouteService: Send + Sync {
-    /// Получить доступные маршруты обмена между токенами
+    /// Get available exchange routes between tokens
     async fn get_route_map(&self) -> Result<HashMap<String, Vec<String>>>;
 }
 
-/// Реализация сервиса маршрутов с использованием Jupiter API
+/// Implementation of route service using Jupiter API
 pub struct JupiterRouteService {
     http_client: Client,
     config: Config,
 }
 
 impl JupiterRouteService {
-    /// Создает новый экземпляр сервиса маршрутов
+    /// Creates a new instance of route service
     pub fn new(config: Config) -> Self {
         Self {
             http_client: Client::new(),
@@ -32,7 +32,7 @@ impl JupiterRouteService {
 
 #[async_trait]
 impl RouteService for JupiterRouteService {
-    /// Получить доступные маршруты обмена
+    /// Get available routes map
     async fn get_route_map(&self) -> Result<HashMap<String, Vec<String>>> {
         let url = format!(
             "{}/indexed-route-map?onlyDirectRoutes=false",

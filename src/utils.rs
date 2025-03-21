@@ -1,6 +1,5 @@
 use anyhow::{anyhow, Result};
 use lazy_static::lazy_static;
-use log::debug;
 use qrcode::{render::svg, QrCode};
 use regex::Regex;
 use solana_sdk::pubkey::Pubkey;

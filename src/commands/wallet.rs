@@ -1,14 +1,13 @@
 use anyhow::Result;
 use log::info;
-use solana_client::nonblocking::rpc_client::RpcClient;
 use std::sync::Arc;
 use teloxide::prelude::*;
 
 use super::{CommandHandler, MyDialogue};
 use crate::di::ServiceContainer;
-use crate::interactor::wallet_interactor::{WalletInteractor, WalletInteractorImpl};
+use crate::interactor::wallet_interactor::WalletInteractorImpl;
 use crate::presenter::wallet_presenter::{WalletPresenter, WalletPresenterImpl};
-use crate::view::wallet_view::{TelegramWalletView, WalletView};
+use crate::view::wallet_view::TelegramWalletView;
 
 pub struct CreateWalletCommand;
 
@@ -25,7 +24,6 @@ impl CommandHandler for CreateWalletCommand {
         bot: Bot,
         msg: Message,
         _dialogue: Option<MyDialogue>,
-        _solana_client: Option<Arc<RpcClient>>,
         services: Arc<ServiceContainer>,
     ) -> Result<()> {
         let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
@@ -61,7 +59,6 @@ impl CommandHandler for AddressCommand {
         bot: Bot,
         msg: Message,
         _dialogue: Option<MyDialogue>,
-        _solana_client: Option<Arc<RpcClient>>,
         services: Arc<ServiceContainer>,
     ) -> Result<()> {
         let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);

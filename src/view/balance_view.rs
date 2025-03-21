@@ -3,7 +3,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use teloxide::{
     prelude::*,
-    types::{Message, MessageId, ParseMode},
+    types::{Message, ParseMode},
     Bot,
 };
 
@@ -64,7 +64,7 @@ impl BalanceView for TelegramBalanceView {
     ) -> Result<()> {
         // Format balances with USD values
         let mut response = format!(
-            "💰 **Wallet Balance {}**\n\n",
+            "💰 <b>Wallet Balance {}</b>\n\n",
             Self::format_address(&address)
         );
 
@@ -75,7 +75,7 @@ impl BalanceView for TelegramBalanceView {
             .map(|(_, value)| *value)
             .unwrap_or(0.0);
         response.push_str(&format!(
-            "• **SOL**: {:.6} (~${:.2})\n",
+            "• <b>SOL</b>: {:.6} (~${:.2})\n",
             sol_balance, sol_usd
         ));
 
@@ -99,34 +99,37 @@ impl BalanceView for TelegramBalanceView {
 
         // Add token balances with USD values
         if !token_display.is_empty() {
-            response.push_str("\n**SPL Tokens:**\n");
+            response.push_str("\n<b>SPL Tokens:</b>\n");
             for (token, usd) in token_display {
                 if usd > 0.0 {
                     response.push_str(&format!(
-                        "• **{}**: {:.6} (~${:.2})\n",
+                        "• <b>{}</b>: {:.6} (~${:.2})\n",
                         token.symbol, token.amount, usd
                     ));
                 } else {
-                    response.push_str(&format!("• **{}**: {:.6}\n", token.symbol, token.amount));
+                    response.push_str(&format!("• <b>{}</b>: {:.6}\n", token.symbol, token.amount));
                 }
             }
         }
 
         // Add total portfolio value
         if total_usd > 0.0 {
-            response.push_str(&format!("\n**Total Portfolio Value:** ~${:.2}", total_usd));
+            response.push_str(&format!(
+                "\n<b>Total Portfolio Value:</b> ~${:.2}",
+                total_usd
+            ));
         }
 
         // Update the status message with the balance info
         if let Some(msg) = message {
             self.bot
                 .edit_message_text(self.chat_id, msg.id, response)
-                .parse_mode(ParseMode::Markdown)
+                .parse_mode(ParseMode::Html)
                 .await?;
         } else {
             self.bot
                 .send_message(self.chat_id, response)
-                .parse_mode(ParseMode::Markdown)
+                .parse_mode(ParseMode::Html)
                 .await?;
         }
 

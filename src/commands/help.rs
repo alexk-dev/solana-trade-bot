@@ -1,7 +1,6 @@
 use super::{CommandHandler, MyDialogue};
 use crate::di::ServiceContainer;
 use anyhow::Result;
-use solana_client::nonblocking::rpc_client::RpcClient;
 use std::sync::Arc;
 use teloxide::prelude::*;
 
@@ -20,8 +19,7 @@ impl CommandHandler for HelpCommand {
         bot: Bot,
         msg: Message,
         _dialogue: Option<MyDialogue>,
-        _solana_client: Option<Arc<RpcClient>>,
-        services: Arc<ServiceContainer>,
+        _services: Arc<ServiceContainer>,
     ) -> Result<()> {
         bot.send_message(
             msg.chat.id,

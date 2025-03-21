@@ -1,14 +1,13 @@
 use anyhow::Result;
 use log::info;
-use solana_client::nonblocking::rpc_client::RpcClient;
 use std::sync::Arc;
 use teloxide::prelude::*;
 
 use super::{CommandHandler, MyDialogue};
 use crate::di::ServiceContainer;
-use crate::interactor::balance_interactor::{BalanceInteractor, BalanceInteractorImpl};
+use crate::interactor::balance_interactor::BalanceInteractorImpl;
 use crate::presenter::balance_presenter::{BalancePresenter, BalancePresenterImpl};
-use crate::view::balance_view::{BalanceView, TelegramBalanceView};
+use crate::view::balance_view::TelegramBalanceView;
 
 pub struct BalanceCommand;
 
@@ -25,7 +24,6 @@ impl CommandHandler for BalanceCommand {
         bot: Bot,
         msg: Message,
         _dialogue: Option<MyDialogue>,
-        solana_client: Option<Arc<RpcClient>>,
         services: Arc<ServiceContainer>,
     ) -> Result<()> {
         let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);

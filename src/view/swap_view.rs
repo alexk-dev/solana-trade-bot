@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use std::format;
-use teloxide::{prelude::*, types::MessageId, Bot};
+use teloxide::{prelude::*, Bot};
 
 #[async_trait]
 pub trait SwapView: Send + Sync {
@@ -72,7 +72,7 @@ impl SwapView for TelegramSwapView {
             )
             .await?;
 
-        Ok((Some(message)))
+        Ok(Some(message))
     }
 
     async fn display_swap_success(

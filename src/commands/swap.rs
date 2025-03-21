@@ -1,6 +1,5 @@
 use anyhow::Result;
 use log;
-use solana_client::nonblocking::rpc_client::RpcClient;
 use std::sync::Arc;
 use teloxide::prelude::*;
 
@@ -26,7 +25,6 @@ impl CommandHandler for SwapCommand {
         bot: Bot,
         msg: Message,
         _dialogue: Option<MyDialogue>,
-        solana_client: Option<Arc<RpcClient>>,
         services: Arc<ServiceContainer>,
     ) -> Result<()> {
         let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);

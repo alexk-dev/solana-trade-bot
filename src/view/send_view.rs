@@ -1,10 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use teloxide::{
-    prelude::*,
-    types::{MessageId, ParseMode},
-    Bot,
-};
+use teloxide::{prelude::*, Bot};
 
 #[async_trait]
 pub trait SendView: Send + Sync {

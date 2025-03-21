@@ -1,11 +1,10 @@
 use super::{CommandHandler, MyDialogue};
 use crate::di::ServiceContainer;
-use crate::interactor::price_interactor::{PriceInteractor, PriceInteractorImpl};
+use crate::interactor::price_interactor::PriceInteractorImpl;
 use crate::presenter::price_presenter::{PricePresenter, PricePresenterImpl};
-use crate::view::price_view::{PriceView, TelegramPriceView};
+use crate::view::price_view::TelegramPriceView;
 use anyhow::Result;
 use log::info;
-use solana_client::nonblocking::rpc_client::RpcClient;
 use std::sync::Arc;
 use teloxide::prelude::*;
 
@@ -24,7 +23,6 @@ impl CommandHandler for PriceCommand {
         bot: Bot,
         msg: Message,
         _dialogue: Option<MyDialogue>,
-        _solana_client: Option<Arc<RpcClient>>,
         services: Arc<ServiceContainer>,
     ) -> Result<()> {
         let command_parts: Vec<&str> = msg.text().unwrap_or("").split_whitespace().collect();

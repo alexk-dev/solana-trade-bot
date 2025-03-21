@@ -6,7 +6,7 @@
 use anyhow::Context;
 use dotenv::dotenv;
 use log::{error, info};
-use solana_wallet_bot::{create_application, create_solana_client, Router};
+use solana_wallet_bot::{create_solana_client, Router};
 use sqlx::postgres::PgPoolOptions;
 use std::env;
 use std::sync::Arc;

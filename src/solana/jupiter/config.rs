@@ -1,16 +1,16 @@
-/// Конфигурация приложения
+/// Application configuration
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// URL для API котировок
+    /// URL for quote API
     pub quote_api_url: String,
 
-    /// URL для API цен
+    /// URL for price API
     pub price_api_url: String,
 
-    /// Адрес токена SOL (wrapped)
+    /// SOL token address (wrapped)
     pub sol_token_address: String,
 
-    /// Адрес токена USDC
+    /// USDC token address
     pub usdc_token_address: String,
 }
 

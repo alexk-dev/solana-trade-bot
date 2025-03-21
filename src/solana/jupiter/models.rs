@@ -38,9 +38,8 @@ impl fmt::Display for SwapMode {
     }
 }
 
-// Модуль для десериализации строковых или числовых значений как float
 pub mod string_or_float {
-    use serde::{self, Deserialize, Deserializer, Serializer};
+    use serde::{self, Deserializer, Serializer};
     use std::fmt;
 
     pub fn serialize<S>(value: &f64, serializer: S) -> Result<S::Ok, S::Error>

@@ -2644,7 +2644,7 @@ source = "git+https://github.com/alexk-dev/jupiter-swap-api-client.git#d241e053d
 dependencies = [
  "anyhow",
  "base64 0.22.1",
- "reqwest 0.12.14",
+ "reqwest 0.12.15",
  "rust_decimal",
  "serde",
  "serde_json",
@@ -3773,9 +3773,9 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.12.14"
+version = "0.12.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "989e327e510263980e231de548a33e63d34962d29ae61b467389a1a09627a254"
+checksum = "d19c46a6fdd48bc4dab94b6103fccc55d34c67cc0ad04653aad4ea2a07cd7bbb"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -6610,7 +6610,7 @@ dependencies = [
  "qrcode",
  "rand 0.9.0",
  "regex",
- "reqwest 0.12.14",
+ "reqwest 0.12.15",
  "resvg",
  "serde",
  "serde_json",

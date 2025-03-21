@@ -2,9 +2,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Token {
-    pub id: String,       // ID токена (mint адрес)
-    pub symbol: String,   // Символ токена (e.g. "SOL", "USDC")
-    pub name: String,     // Полное название токена
-    pub decimals: u8,     // Количество десятичных знаков
-    pub logo_uri: String, // URI логотипа токена (опционально)
+    pub id: String,       // Token ID (mint address)
+    pub symbol: String,   // Token symbol (e.g. "SOL", "USDC")
+    pub name: String,     // Full token name
+    pub decimals: u8,     // Number of decimal places
+    pub logo_uri: String, // Token logo URI (optional)
 }

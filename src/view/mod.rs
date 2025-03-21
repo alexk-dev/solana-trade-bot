@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use teloxide::prelude::*;
 
 pub mod balance_view;
 pub mod price_view;

@@ -1,7 +1,6 @@
 use anyhow::Result;
-use sqlx::PgPool;
 use std::sync::Arc;
-use teloxide::{dispatching::dialogue::InMemStorage, prelude::*, types::ParseMode};
+use teloxide::{dispatching::dialogue::InMemStorage, prelude::*};
 
 use crate::di::ServiceContainer; // Import the service container
 use crate::entity::State;
@@ -29,7 +28,6 @@ pub trait CommandHandler {
         bot: Bot,
         msg: Message,
         dialogue: Option<MyDialogue>,
-        solana_client: Option<Arc<solana_client::nonblocking::rpc_client::RpcClient>>,
         services: Arc<ServiceContainer>,
     ) -> Result<()>;
 }
@@ -78,48 +76,89 @@ pub fn setup_command_handlers() -> teloxide::dispatching::UpdateHandler<anyhow::
     use teloxide::dispatching::UpdateFilterExt;
 
     // Use BotCommands enum with teloxide's command filter
-    let command_handler = teloxide::filter_command::<BotCommands, _>()
-        .branch(case![BotCommands::Start].endpoint(
-            |bot: Bot, msg: Message, db_pool: PgPool, services: Arc<ServiceContainer>| async move {
-                start::StartCommand::execute(bot, msg, None, None, services).await
-            },
-        ))
-        .branch(case![BotCommands::CreateWallet].endpoint(
-            |bot: Bot, msg: Message, db_pool: PgPool, services: Arc<ServiceContainer>| async move {
-                wallet::CreateWalletCommand::execute(bot, msg, None, None, services).await
-            },
-        ))
-        .branch(case![BotCommands::Address].endpoint(
-            |bot: Bot, msg: Message, db_pool: PgPool, services: Arc<ServiceContainer>| async move {
-                wallet::AddressCommand::execute(bot, msg, None,  None, services).await
-            },
-        ))
-        .branch(case![BotCommands::Balance].endpoint(
-            |bot: Bot, msg: Message, db_pool: PgPool, solana_client: Arc<solana_client::nonblocking::rpc_client::RpcClient>, services: Arc<ServiceContainer>| async move {
-                balance::BalanceCommand::execute(bot, msg, None, Some(solana_client), services)
-                    .await
-            },
-        ))
-        .branch(case![BotCommands::Send].endpoint(
-            |bot: Bot, msg: Message, dialogue: MyDialogue, services: Arc<ServiceContainer>| async move {
-                send::SendCommand::execute(bot, msg, Some(dialogue),  None, services).await
-            },
-        ))
-        .branch(case![BotCommands::Swap].endpoint(
-            |bot: Bot, msg: Message, db_pool: PgPool, solana_client: Arc<solana_client::nonblocking::rpc_client::RpcClient>, services: Arc<ServiceContainer>| async move {
-                swap::SwapCommand::execute(bot, msg, None,  Some(solana_client), services).await
-            },
-        ))
-        .branch(
-            case![BotCommands::Price].endpoint(|bot: Bot, msg: Message, services: Arc<ServiceContainer>| async move {
-                price::PriceCommand::execute(bot, msg, None,  None, services).await
-            }),
-        )
-        .branch(
-            case![BotCommands::Help].endpoint(|bot: Bot, msg: Message, services: Arc<ServiceContainer>| async move {
-                help::HelpCommand::execute(bot, msg, None, None, services).await
-            }),
-        );
+    let command_handler =
+        teloxide::filter_command::<BotCommands, _>()
+            .branch(
+                case![BotCommands::Start].endpoint(
+                    |bot: Bot,
+                     msg: Message,
+                     dialogue: MyDialogue,
+                     services: Arc<ServiceContainer>| async move {
+                        start::StartCommand::execute(bot, msg, Some(dialogue), services).await
+                    },
+                ),
+            )
+            .branch(
+                case![BotCommands::CreateWallet].endpoint(
+                    |bot: Bot,
+                     msg: Message,
+                     dialogue: MyDialogue,
+                     services: Arc<ServiceContainer>| async move {
+                        wallet::CreateWalletCommand::execute(bot, msg, Some(dialogue), services)
+                            .await
+                    },
+                ),
+            )
+            .branch(
+                case![BotCommands::Address].endpoint(
+                    |bot: Bot,
+                     msg: Message,
+                     dialogue: MyDialogue,
+                     services: Arc<ServiceContainer>| async move {
+                        wallet::AddressCommand::execute(bot, msg, Some(dialogue), services).await
+                    },
+                ),
+            )
+            .branch(
+                case![BotCommands::Balance].endpoint(
+                    |bot: Bot,
+                     msg: Message,
+                     dialogue: MyDialogue,
+                     services: Arc<ServiceContainer>| async move {
+                        balance::BalanceCommand::execute(bot, msg, Some(dialogue), services).await
+                    },
+                ),
+            )
+            .branch(
+                case![BotCommands::Send].endpoint(
+                    |bot: Bot,
+                     msg: Message,
+                     dialogue: MyDialogue,
+                     services: Arc<ServiceContainer>| async move {
+                        send::SendCommand::execute(bot, msg, Some(dialogue), services).await
+                    },
+                ),
+            )
+            .branch(
+                case![BotCommands::Swap].endpoint(
+                    |bot: Bot,
+                     msg: Message,
+                     dialogue: MyDialogue,
+                     services: Arc<ServiceContainer>| async move {
+                        swap::SwapCommand::execute(bot, msg, Some(dialogue), services).await
+                    },
+                ),
+            )
+            .branch(
+                case![BotCommands::Price].endpoint(
+                    |bot: Bot,
+                     msg: Message,
+                     dialogue: MyDialogue,
+                     services: Arc<ServiceContainer>| async move {
+                        price::PriceCommand::execute(bot, msg, Some(dialogue), services).await
+                    },
+                ),
+            )
+            .branch(
+                case![BotCommands::Help].endpoint(
+                    |bot: Bot,
+                     msg: Message,
+                     dialogue: MyDialogue,
+                     services: Arc<ServiceContainer>| async move {
+                        help::HelpCommand::execute(bot, msg, Some(dialogue), services).await
+                    },
+                ),
+            );
 
     let message_handler = Update::filter_message().branch(command_handler).branch(
         dptree::entry()
@@ -138,8 +177,6 @@ pub fn setup_command_handlers() -> teloxide::dispatching::UpdateHandler<anyhow::
                      msg: Message,
                      state: State,
                      dialogue: MyDialogue,
-                     db_pool: PgPool,
-                     solana_client: Arc<solana_client::nonblocking::rpc_client::RpcClient>,
                      services: Arc<ServiceContainer>| async move {
                         send::receive_confirmation(bot, msg, state, dialogue, services).await
                     },

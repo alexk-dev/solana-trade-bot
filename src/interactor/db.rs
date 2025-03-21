@@ -1,6 +1,6 @@
 use crate::entity::{Swap, Transaction, User};
 use chrono::Utc;
-use log::{error, info};
+use log::info;
 use sqlx::{postgres::PgQueryResult, Error as SqlxError, PgPool, Row};
 
 // Check if user exists in database

@@ -1,12 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use std::fmt::Write;
 use std::format;
-use teloxide::{
-    prelude::*,
-    types::{MessageId, ParseMode},
-    Bot,
-};
+use teloxide::{prelude::*, types::MessageId, Bot};
 
 #[async_trait]
 pub trait PriceView: Send + Sync {

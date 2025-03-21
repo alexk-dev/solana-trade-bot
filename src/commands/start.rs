@@ -1,6 +1,5 @@
 use anyhow::Result;
 use log::info;
-use solana_client::nonblocking::rpc_client::RpcClient;
 use std::sync::Arc;
 use teloxide::{prelude::*, types::ParseMode};
 
@@ -23,7 +22,6 @@ impl CommandHandler for StartCommand {
         bot: Bot,
         msg: Message,
         _dialogue: Option<MyDialogue>,
-        _solana_client: Option<Arc<RpcClient>>,
         services: Arc<ServiceContainer>,
     ) -> Result<()> {
         let db_pool = services.db_pool();
@@ -47,14 +45,14 @@ impl CommandHandler for StartCommand {
                 "Hello! I'm a Solana wallet management bot. You have been successfully registered.\n\n\
                 Use /create_wallet to create a new wallet, or /help to view all available commands."
             )
-                .parse_mode(ParseMode::Markdown)
+                .parse_mode(ParseMode::MarkdownV2)
                 .await?;
         } else {
             bot.send_message(
                 msg.chat.id,
                 "Welcome back! Use /help to view all available commands.",
             )
-            .parse_mode(ParseMode::Markdown)
+            .parse_mode(ParseMode::MarkdownV2)
             .await?;
         }
 

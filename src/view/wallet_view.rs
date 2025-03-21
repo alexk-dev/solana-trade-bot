@@ -44,7 +44,7 @@ impl WalletView for TelegramWalletView {
                     mnemonic
                 ),
             )
-            .parse_mode(ParseMode::Markdown)
+            .parse_mode(ParseMode::MarkdownV2)
             .await?;
 
         Ok(())
@@ -60,7 +60,7 @@ impl WalletView for TelegramWalletView {
                 self.chat_id,
                 format!("Your Solana wallet address:\n\n`{}`", address),
             )
-            .parse_mode(ParseMode::Markdown)
+            .parse_mode(ParseMode::MarkdownV2)
             .await?;
 
         // Send QR code as photo
