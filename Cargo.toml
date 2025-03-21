@@ -1,7 +1,10 @@
 [package]
-name = "testp"
-version = "0.1.0"
+name = "solana-wallet-bot"
+version = "1.0.0"
 edition = "2021"
+authors = ["Alex Kuleshov <alex@kuleshov.tech>"]
+repository = "https://github.com/alexk-dev/solana-wallet-bot"
+license = "SSPL-1.0"
 
 [dependencies]
 # Telegram Bot API
