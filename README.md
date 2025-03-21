@@ -1,113 +1,123 @@
-# Solana Telegram Wallet Bot
+# Solana Wallet Bot for Telegram
 
-Телеграм-бот на Rust для управления Solana-кошельком и выполнения операций через Raydium DEX.
+A powerful Telegram bot for Solana blockchain interactions, offering wallet management, token swaps, and crypto trading capabilities.
 
-## Возможности
+![Solana](https://img.shields.io/badge/Solana-black?style=for-the-badge&logo=solana)
+![Telegram](https://img.shields.io/badge/Telegram-blue?style=for-the-badge&logo=telegram)
+![Rust](https://img.shields.io/badge/Rust-orange?style=for-the-badge&logo=rust)
 
-- Регистрация пользователей по Telegram ID
-- Создание Solana-кошелька с генерацией мнемонической фразы
-- Отображение адреса кошелька с QR-кодом для удобного пополнения
-- Проверка баланса SOL и SPL-токенов
-- Отправка SOL и SPL-токенов на другие адреса
-- Обмен токенов через Raydium DEX (token swap)
-- Получение информации о ценах на токены
+## Overview
 
-## Технический стек
+Solana Wallet Bot is your all-in-one Telegram trading companion for the Solana ecosystem. Similar to popular bots like BONKBot, TrojanOnSolana, and BananaGun, but built with superior architecture and security in mind. This feature-rich bot enables users to create and manage Solana wallets, check balances, perform token swaps via Jupiter's powerful DEX aggregator, and execute trades—all directly from Telegram chats. Whether you're a casual trader or a DeFi power user, this bot provides a comprehensive solution for managing your Solana assets without ever leaving Telegram.
 
-- **Язык**: Rust
-- **Фреймворк для Telegram**: Teloxide
-- **Блокчейн**: Solana SDK
-- **База данных**: PostgreSQL
-- **Работа с токенами**: SPL Token
-- **DEX**: Raydium
+## Key Features
 
-## Архитектура
+- **Wallet Management**: Create and manage Solana wallets securely
+- **Balance Checking**: View SOL and SPL token balances with USD equivalents
+- **QR Code Generation**: Generate QR codes for wallet addresses
+- **Token Transfers**: Send SOL and SPL tokens to any Solana address
+- **Token Swaps**: Swap between tokens using Jupiter DEX aggregator
+- **Price Checking**: Get real-time token prices
 
-Проект имеет модульную структуру:
+## Commands
 
-```
-src/
-├── main.rs                   # Основная точка входа
-├── commands.rs               # Обработчики команд Telegram
-├── db.rs                     # Взаимодействие с базой данных
-├── model.rs                  # Модели данных
-├── initialize_db.rs          # Инициализация базы данных
-├── raydium.rs                # Интеграция с Raydium DEX
-├── utils.rs                  # Вспомогательные функции
-└── solana/                   # Взаимодействие с Solana
-    ├── mod.rs                # Реэкспорт основных функций
-    ├── client.rs             # Клиент Solana RPC
-    ├── wallet.rs             # Работа с кошельками
-    ├── utils.rs              # Утилиты для работы с Solana
-    └── tokens/               # Работа с токенами
-        ├── mod.rs            # Модуль токенов 
-        ├── constants.rs      # Константы токенов
-        ├── native.rs         # Работа с нативным SOL
-        ├── spl.rs            # Работа с SPL-токенами
-        └── transaction.rs    # Утилиты для транзакций
-```
+- `/start` - Start working with the bot
+- `/create_wallet` - Create a new Solana wallet
+- `/address` - Show your wallet address and QR code
+- `/balance` - Check your wallet balance and token holdings
+- `/send` - Send funds to another address
+- `/swap <amount> <source_token> <target_token> [<slippage>%]` - Swap tokens via Jupiter DEX
+- `/price <token_symbol>` - Get current token price
+- `/help` - Show help message with command list
 
-## Установка и настройка
+## Architecture
 
-### Требования
+The project follows Clean Architecture principles with the VIPER pattern:
 
-- Rust (последняя стабильная версия)
+- **V**iew: Telegram message interfaces
+- **I**nteractor: Business logic implementation
+- **P**resenter: Transforms data between View and Interactor
+- **E**ntity: Domain models
+- **R**outer: Handles command routing and workflow
+
+## Technical Stack
+
+- **Language**: Rust
+- **Telegram API**: Teloxide
+- **Blockchain**: Solana (solana-sdk, solana-client)
+- **Database**: PostgreSQL with SQLx
+- **DEX Integration**: Jupiter Swap API
+
+## Installation
+
+### Prerequisites
+
+- Rust 1.60+
 - PostgreSQL
-- Доступ к Solana RPC (публичный или приватный)
+- Docker (optional, for containerized deployment)
 
-### Шаги установки
+### Environment Variables
 
-1. Клонируйте репозиторий
-   ```
-   git clone https://github.com/username/solana-telegram-wallet.git
-   cd solana-telegram-wallet
-   ```
-
-2. Создайте файл `.env` на основе `.env.example`
-   ```
-   cp .env.example .env
-   ```
-
-3. Отредактируйте `.env` и укажите:
-    - Telegram Bot Token (получите от @BotFather)
-    - Строку подключения к PostgreSQL
-    - URL Solana RPC
-
-4. Соберите и запустите бот
-   ```
-   cargo build --release
-   ./target/release/solana_telegram_wallet
-   ```
-
-## Команды бота
-
-- `/start` - Начать работу с ботом / зарегистрироваться
-- `/create_wallet` - Создать новый Solana-кошелек
-- `/address` - Показать адрес вашего кошелька и QR-код
-- `/balance` - Проверить баланс вашего кошелька
-- `/send` - Отправить SOL или токены на другой адрес
-- `/swap <сумма> <исходный_токен> <целевой_токен> [<проскальзывание>%]` - Обменять токены
-- `/price <символ_токена>` - Получить цену токена
-- `/help` - Показать справку по командам
-
-## Развертывание
-
-Для запуска в продакшен-среде рекомендуется использовать Docker:
+Create a `.env` file with:
 
 ```
-docker-compose up -d
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+DATABASE_URL=postgres://username:password@localhost/dbname
+SOLANA_RPC_URL=your_solana_rpc_url
 ```
 
-## Безопасность
+### Setup
 
-Обратите внимание:
-- Приватные ключи хранятся в открытом виде в базе данных. В продакшен-версии следует использовать шифрование.
-- Бот предназначен для образовательных целей и демонстрации возможностей Solana SDK.
+1. Clone the repository:
+```bash
+git clone https://github.com/alexk-dev/solana-wallet-bot.git
+cd solana-wallet-bot
+```
 
-## Лицензия
+2. Set up the database:
+```bash
+sqlx database create
+sqlx migrate run
+```
 
-MIT License
+3. Build and run:
+```bash
+cargo build --release
+./target/release/solana-wallet-bot
+```
 
-## Контакты
+## Docker Deployment
 
-По вопросам и предложениям обращайтесь [email@example.com]
+```bash
+docker build -t solana-wallet-bot .
+docker run -d --env-file .env --name solana-wallet-bot solana-wallet-bot
+```
+
+## License
+
+This project is licensed under the Server Side Public License (SSPL) - see the [LICENSE](LICENSE) file for details.
+
+## Disclaimer
+
+This bot is provided as-is without any guarantees. Users are responsible for managing their own keys and funds. Always verify transactions before confirming them.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the project
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## Acknowledgements
+
+- [Solana](https://solana.com/)
+- [Jupiter](https://jup.ag/)
+- [Teloxide](https://github.com/teloxide/teloxide)
+- The Rust community
+
+---
+
+Built with ❤️ for the Solana ecosystem.
