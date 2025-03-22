@@ -6425,6 +6425,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-trade-bot"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "bip39",
+ "bs58",
+ "chrono",
+ "dotenv",
+ "ed25519-dalek 2.1.1",
+ "env_logger 0.11.7",
+ "jupiter-swap-api-client",
+ "lazy_static",
+ "log",
+ "png",
+ "qrcode",
+ "rand 0.9.0",
+ "regex",
+ "reqwest 0.12.15",
+ "resvg",
+ "serde",
+ "serde_json",
+ "solana-client",
+ "solana-sdk",
+ "spl-associated-token-account",
+ "spl-token",
+ "sqlx",
+ "teloxide",
+ "thiserror 2.0.12",
+ "tiny-skia",
+ "tokio",
+ "usvg",
+]
+
+[[package]]
 name = "solana-transaction"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6588,42 +6624,6 @@ dependencies = [
  "solana-serialize-utils",
  "solana-short-vec",
  "solana-system-interface",
-]
-
-[[package]]
-name = "solana-wallet-bot"
-version = "1.0.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "bincode",
- "bip39",
- "bs58",
- "chrono",
- "dotenv",
- "ed25519-dalek 2.1.1",
- "env_logger 0.11.7",
- "jupiter-swap-api-client",
- "lazy_static",
- "log",
- "png",
- "qrcode",
- "rand 0.9.0",
- "regex",
- "reqwest 0.12.15",
- "resvg",
- "serde",
- "serde_json",
- "solana-client",
- "solana-sdk",
- "spl-associated-token-account",
- "spl-token",
- "sqlx",
- "teloxide",
- "thiserror 2.0.12",
- "tiny-skia",
- "tokio",
- "usvg",
 ]
 
 [[package]]

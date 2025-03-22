@@ -70,8 +70,8 @@ SOLANA_RPC_URL=your_solana_rpc_url
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/alexk-dev/solana-wallet-bot.git
-cd solana-wallet-bot
+git clone https://github.com/alexk-dev/solana-trade-bot.git
+cd solana-trade-bot
 ```
 
 2. Set up the database:
@@ -83,14 +83,14 @@ sqlx migrate run
 3. Build and run:
 ```bash
 cargo build --release
-./target/release/solana-wallet-bot
+./target/release/solana-trade-bot
 ```
 
 ## Docker Deployment
 
 ```bash
-docker build -t solana-wallet-bot .
-docker run -d --env-file .env --name solana-wallet-bot solana-wallet-bot
+docker build -t solana-trade-bot .
+docker run -d --env-file .env --name solana-trade-bot solana-trade-bot
 ```
 
 ## License
