@@ -45,8 +45,8 @@ impl LimitOrderService {
 
         // Spawn a new async task that runs independently
         tokio::spawn(async move {
-            // Create an interval ticker that triggers every 30 seconds
-            let mut interval = interval(Duration::from_secs(30));
+            // Create an interval ticker that triggers every 7 seconds
+            let mut interval = interval(Duration::from_secs(7));
             let mut last_run = Instant::now();
 
             loop {
