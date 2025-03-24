@@ -78,8 +78,16 @@ async fn main() -> anyhow::Result<()> {
     info!("Initializing bot application...");
 
     // Initialize the application components
-    let (router, bot, service_container, storage) =
+    let (router, bot, service_container, storage, mut limit_order_service) =
         solana_trade_bot::create_application(bot, db_pool, solana_client);
+
+    // Start limit order background service
+    info!("Starting limit order background service...");
+    if let Err(e) = limit_order_service.start().await {
+        error!("Failed to start limit order service: {}", e);
+    } else {
+        info!("Limit order service started successfully");
+    }
 
     // Get the handler from the router
     let handler = router.setup_handlers();
@@ -92,6 +100,10 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Bot is running! Press Ctrl+C to stop.");
     dispatcher.dispatch().await;
+
+    // Stop limit order service
+    info!("Stopping limit order service...");
+    limit_order_service.stop().await;
 
     Ok(())
 }

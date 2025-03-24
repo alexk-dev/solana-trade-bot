@@ -12,6 +12,7 @@ use teloxide::dispatching::dialogue::Dialogue;
 
 pub mod callback;
 pub mod help;
+pub mod limit_order;
 pub mod menu;
 pub mod price;
 pub mod send;

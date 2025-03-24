@@ -13,6 +13,7 @@ use crate::interactor::balance_interactor::{BalanceInteractor, BalanceInteractor
 use crate::interactor::swap_interactor::SwapInteractorImpl;
 use crate::interactor::wallet_interactor::WalletInteractorImpl;
 use crate::presenter::balance_presenter::{BalancePresenter, BalancePresenterImpl};
+use crate::presenter::limit_order_presenter::LimitOrderPresenter;
 use crate::view::balance_view::TelegramBalanceView;
 
 // Main callback handler function
@@ -89,6 +90,46 @@ pub async fn handle_callback(
         // Handle direct sell command
         trade::SellCommand::execute(bot, message.clone(), telegram_id, Some(dialogue), services)
             .await?;
+    } else if callback_data == "limit_orders" {
+        // Display limit orders
+        handle_limit_orders(&bot, message.clone(), telegram_id, services).await?;
+    } else if callback_data == "create_limit_order" {
+        // Start limit order creation flow
+        handle_create_limit_order(&bot, message.clone(), dialogue, services).await?;
+    } else if callback_data == "limit_buy_order" {
+        // Handle limit buy order type selection
+        crate::commands::limit_order::handle_order_type_selection(
+            bot,
+            message.clone(),
+            crate::entity::LimitOrderType::Buy,
+            dialogue,
+            services,
+        )
+        .await?;
+    } else if callback_data == "limit_sell_order" {
+        // Handle limit sell order type selection
+        crate::commands::limit_order::handle_order_type_selection(
+            bot,
+            message.clone(),
+            crate::entity::LimitOrderType::Sell,
+            dialogue,
+            services,
+        )
+        .await?;
+    } else if callback_data == "refresh_limit_orders" {
+        // Refresh limit orders display
+        handle_limit_orders(&bot, message.clone(), telegram_id, services).await?;
+    } else if callback_data == "cancel_limit_order" {
+        // Show list of orders that can be cancelled
+        handle_show_cancelable_orders(&bot, message.clone(), telegram_id, services).await?;
+    } else if callback_data.starts_with("cancel_order_") {
+        // Handle specific order cancellation
+        let order_id_str = callback_data.strip_prefix("cancel_order_").unwrap_or("");
+        if let Ok(order_id) = order_id_str.parse::<i32>() {
+            handle_cancel_order(&bot, message.clone(), order_id, telegram_id, services).await?;
+        } else {
+            bot.send_message(chat_id, "Invalid order ID").await?;
+        }
     } else {
         // Handle trading UI buttons
         bot.send_message(
@@ -143,7 +184,7 @@ async fn handle_price_selection(
             // Add back button
             let keyboard = InlineKeyboardMarkup::new(vec![vec![
                 InlineKeyboardButton::callback("Check Another Price", "price"),
-                InlineKeyboardButton::callback("← Back to Menu", "main_menu"),
+                InlineKeyboardButton::callback("← Back to Menu", "menu"),
             ]]);
 
             // Update message with price info
@@ -240,6 +281,184 @@ async fn handle_swap_amount(
     } else {
         bot.send_message(chat_id, "Invalid swap parameters. Please try again.")
             .await?;
+    }
+
+    Ok(())
+}
+
+// Function to display limit orders
+async fn handle_limit_orders(
+    bot: &Bot,
+    message: Message,
+    telegram_id: i64,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
+    let chat_id = message.chat.id;
+
+    // Create presenter to display limit orders
+    let db_pool = services.db_pool();
+    let solana_client = services.solana_client();
+    let price_service = services.price_service();
+    let token_repository = services.token_repository();
+
+    let interactor = Arc::new(
+        crate::interactor::limit_order_interactor::LimitOrderInteractorImpl::new(
+            db_pool,
+            solana_client,
+            price_service,
+            token_repository,
+        ),
+    );
+    let view = Arc::new(crate::view::limit_order_view::TelegramLimitOrderView::new(
+        bot.clone(),
+        chat_id,
+    ));
+    let presenter =
+        crate::presenter::limit_order_presenter::LimitOrderPresenterImpl::new(interactor, view);
+
+    // Show limit orders
+    presenter.show_limit_orders(telegram_id).await?;
+
+    Ok(())
+}
+
+// Function to start limit order creation
+async fn handle_create_limit_order(
+    bot: &Bot,
+    message: Message,
+    dialogue: MyDialogue,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
+    let chat_id = message.chat.id;
+
+    // Update dialogue state
+    dialogue
+        .update(crate::entity::State::AwaitingLimitOrderType)
+        .await?;
+
+    // Create presenter for limit order creation
+    let db_pool = services.db_pool();
+    let solana_client = services.solana_client();
+    let price_service = services.price_service();
+    let token_repository = services.token_repository();
+
+    let interactor = Arc::new(
+        crate::interactor::limit_order_interactor::LimitOrderInteractorImpl::new(
+            db_pool,
+            solana_client,
+            price_service,
+            token_repository,
+        ),
+    );
+    let view = Arc::new(crate::view::limit_order_view::TelegramLimitOrderView::new(
+        bot.clone(),
+        chat_id,
+    ));
+    let presenter =
+        crate::presenter::limit_order_presenter::LimitOrderPresenterImpl::new(interactor, view);
+
+    // Start limit order creation flow
+    presenter.start_create_order_flow().await?;
+
+    Ok(())
+}
+
+// Function to show cancelable orders
+async fn handle_show_cancelable_orders(
+    bot: &Bot,
+    message: Message,
+    telegram_id: i64,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
+    let chat_id = message.chat.id;
+
+    // Get active orders
+    let db_pool = services.db_pool();
+    let orders = crate::interactor::db::get_active_limit_orders(&db_pool, telegram_id).await?;
+
+    if orders.is_empty() {
+        bot.send_message(chat_id, "You don't have any active orders to cancel.")
+            .await?;
+        return Ok(());
+    }
+
+    // Create inline keyboard with cancel buttons for each order
+    let mut keyboard_buttons = Vec::new();
+    for order in &orders {
+        let button_text = format!(
+            "#{}: {} {} @ {} SOL",
+            order.id, order.amount, order.token_symbol, order.price_in_sol
+        );
+        keyboard_buttons.push(vec![InlineKeyboardButton::callback(
+            button_text,
+            format!("cancel_order_{}", order.id),
+        )]);
+    }
+
+    // Add back button
+    keyboard_buttons.push(vec![InlineKeyboardButton::callback(
+        "Back to Orders",
+        "limit_orders",
+    )]);
+
+    let keyboard = InlineKeyboardMarkup::new(keyboard_buttons);
+
+    // Send message with cancel options
+    bot.send_message(chat_id, "Select an order to cancel:")
+        .reply_markup(keyboard)
+        .await?;
+
+    Ok(())
+}
+
+// Function to cancel a specific order
+async fn handle_cancel_order(
+    bot: &Bot,
+    message: Message,
+    order_id: i32,
+    telegram_id: i64,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
+    let db_pool = services.db_pool();
+
+    // Verify order exists and belongs to user
+    let user = crate::interactor::db::get_user_by_telegram_id(&db_pool, telegram_id).await?;
+    let order = crate::interactor::db::get_limit_order_by_id(&db_pool, order_id).await?;
+
+    match order {
+        Some(order) if order.user_id == user.id => {
+            // Cancel the order
+            crate::interactor::db::cancel_limit_order(&db_pool, order_id).await?;
+
+            // Send confirmation
+            bot.send_message(
+                ChatId(telegram_id),
+                format!(
+                    "Order #{} ({} {} @ {} SOL) has been cancelled.",
+                    order_id, order.amount, order.token_symbol, order.price_in_sol
+                ),
+            )
+            .await?;
+
+            // Refresh orders list
+            handle_limit_orders(bot, message, telegram_id, services).await?;
+        }
+        Some(_) => {
+            // Order exists but doesn't belong to user
+            bot.send_message(
+                ChatId(telegram_id),
+                "You don't have permission to cancel this order.",
+            )
+            .await?;
+        }
+        None => {
+            // Order doesn't exist
+            bot.send_message(
+                ChatId(telegram_id),
+                format!("Order #{} not found.", order_id),
+            )
+            .await?;
+        }
     }
 
     Ok(())

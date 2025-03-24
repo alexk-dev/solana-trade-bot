@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 
 pub mod balance_view;
+pub mod limit_order_view;
 pub mod price_view;
 pub mod send_view;
 pub mod swap_view;

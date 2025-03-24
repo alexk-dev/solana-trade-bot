@@ -24,22 +24,6 @@ CREATE TABLE IF NOT EXISTS transactions (
 -- Create index on user_id in transactions
 CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
 
--- Create swaps table
-CREATE TABLE IF NOT EXISTS swaps (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-    from_token VARCHAR NOT NULL,
-    to_token VARCHAR NOT NULL,
-    amount_in NUMERIC NOT NULL,
-    amount_out NUMERIC NOT NULL,
-    tx_signature VARCHAR,
-    timestamp TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    status VARCHAR NOT NULL
-);
-
--- Create index on user_id in swaps
-CREATE INDEX IF NOT EXISTS idx_swaps_user_id ON swaps(user_id);
-
 CREATE TABLE IF NOT EXISTS trades (
                                       id SERIAL PRIMARY KEY,
                                       user_id INTEGER NOT NULL REFERENCES users(id),
@@ -62,3 +46,22 @@ CREATE TABLE IF NOT EXISTS trades (
 CREATE INDEX IF NOT EXISTS idx_trades_user_id ON trades(user_id);
 CREATE INDEX IF NOT EXISTS idx_trades_token_address ON trades(token_address);
 CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp);
+
+CREATE TABLE IF NOT EXISTS limit_orders (
+                                            id SERIAL PRIMARY KEY,
+                                            user_id INTEGER NOT NULL REFERENCES users(id),
+    token_address TEXT NOT NULL,
+    token_symbol TEXT NOT NULL,
+    order_type TEXT NOT NULL,
+    price_in_sol DOUBLE PRECISION NOT NULL,
+    amount DOUBLE PRECISION NOT NULL,
+    current_price_in_sol DOUBLE PRECISION,
+    tx_signature TEXT,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    status TEXT NOT NULL
+    );
+
+-- Create index for faster queries
+CREATE INDEX IF NOT EXISTS idx_limit_orders_user_id ON limit_orders(user_id);
+CREATE INDEX IF NOT EXISTS idx_limit_orders_status ON limit_orders(status);

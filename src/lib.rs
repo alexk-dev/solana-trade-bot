@@ -25,6 +25,8 @@ pub mod utils;
 /// View layer for rendering responses
 pub mod view;
 
+pub mod services;
+
 // Re-export commonly used items for convenient imports
 pub use commands::BotCommands;
 pub use di::ServiceContainer;
@@ -58,6 +60,7 @@ pub fn create_application(
     teloxide::Bot,
     std::sync::Arc<ServiceContainer>,
     std::sync::Arc<InMemStorage<State>>,
+    services::LimitOrderService,
 ) {
     use std::sync::Arc;
     use teloxide::dispatching::dialogue::InMemStorage;
@@ -71,5 +74,9 @@ pub fn create_application(
     // Create the router
     let router = TelegramRouter::new(service_container.clone());
 
-    (router, bot, service_container, storage)
+    // Create limit order service
+    let limit_order_service =
+        services::LimitOrderService::new(service_container.clone(), bot.clone());
+
+    (router, bot, service_container, storage, limit_order_service)
 }

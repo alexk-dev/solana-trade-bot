@@ -98,6 +98,9 @@ impl Router for TelegramRouter {
         let services_for_dialog6 = self.services.clone();
         let services_for_dialog7 = self.services.clone();
         let services_for_dialog8 = self.services.clone();
+        let services_for_dialog9 = self.services.clone();
+        let services_for_dialog10 = self.services.clone();
+        let services_for_dialog11 = self.services.clone();
 
         let message_handler = Update::filter_message().branch(command_handler).branch(
             dptree::entry()
@@ -199,7 +202,61 @@ impl Router for TelegramRouter {
                             .await
                         }
                     },
-                )),
+                ))
+                .branch(
+                    case![State::AwaitingLimitOrderTokenAddress { order_type }].endpoint(
+                        move |bot: Bot, msg: Message, state: State, dialogue: MyDialogue| {
+                            let services = services_for_dialog9.clone();
+                            async move {
+                                commands::limit_order::receive_token_address(
+                                    bot, msg, state, dialogue, services,
+                                )
+                                .await
+                            }
+                        },
+                    ),
+                )
+                .branch(
+                    case![State::AwaitingLimitOrderPriceAndAmount {
+                        order_type,
+                        token_address,
+                        token_symbol,
+                        current_price_in_sol,
+                        current_price_in_usdc
+                    }]
+                    .endpoint(
+                        move |bot: Bot, msg: Message, state: State, dialogue: MyDialogue| {
+                            let services = services_for_dialog10.clone();
+                            async move {
+                                commands::limit_order::receive_price_and_amount(
+                                    bot, msg, state, dialogue, services,
+                                )
+                                .await
+                            }
+                        },
+                    ),
+                )
+                .branch(
+                    case![State::AwaitingLimitOrderConfirmation {
+                        order_type,
+                        token_address,
+                        token_symbol,
+                        price_in_sol,
+                        amount,
+                        total_sol
+                    }]
+                    .endpoint(
+                        move |bot: Bot, msg: Message, state: State, dialogue: MyDialogue| {
+                            let services = services_for_dialog11.clone();
+                            async move {
+                                commands::limit_order::receive_confirmation(
+                                    bot, msg, state, dialogue, services,
+                                )
+                                .await
+                            }
+                        },
+                    ),
+                ),
         );
 
         // Add callback query handler for our buttons

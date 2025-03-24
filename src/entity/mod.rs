@@ -1,4 +1,5 @@
 mod bot_error;
+mod limit_order;
 mod state;
 mod swap;
 mod token;
@@ -10,6 +11,7 @@ mod user;
 
 // Re-export models from jupiter that should be considered entities
 pub use bot_error::BotError;
+pub use limit_order::{LimitOrder, LimitOrderState, LimitOrderStatus, LimitOrderType};
 pub use state::State;
 pub use swap::Swap;
 pub use token::Token;

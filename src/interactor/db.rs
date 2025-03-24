@@ -1,4 +1,4 @@
-use crate::entity::{Swap, Trade, Transaction, User};
+use crate::entity::{LimitOrder, LimitOrderStatus, LimitOrderType, Swap, Trade, Transaction, User};
 use chrono::Utc;
 use log::info;
 use sqlx::{postgres::PgQueryResult, Error as SqlxError, PgPool, Row};
@@ -274,4 +274,213 @@ pub async fn get_user_trades(pool: &PgPool, telegram_id: i64) -> Result<Vec<Trad
     }
 
     Ok(trades)
+}
+
+pub async fn create_limit_order(
+    pool: &PgPool,
+    telegram_id: i64,
+    token_address: &str,
+    token_symbol: &str,
+    order_type: &LimitOrderType,
+    price_in_sol: f64,
+    amount: f64,
+    current_price_in_sol: Option<f64>,
+) -> Result<i32, SqlxError> {
+    // Get user ID from telegram_id
+    let user = get_user_by_telegram_id(pool, telegram_id).await?;
+
+    let order_type_str = order_type.to_string();
+    let status = LimitOrderStatus::Active.to_string();
+    let now = Utc::now();
+
+    let row = sqlx::query(
+        "INSERT INTO limit_orders (
+            user_id, token_address, token_symbol, order_type,
+            price_in_sol, amount, current_price_in_sol,
+            created_at, updated_at, status
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        RETURNING id",
+    )
+    .bind(user.id)
+    .bind(token_address)
+    .bind(token_symbol)
+    .bind(order_type_str)
+    .bind(price_in_sol)
+    .bind(amount)
+    .bind(current_price_in_sol)
+    .bind(now)
+    .bind(now)
+    .bind(status)
+    .fetch_one(pool)
+    .await?;
+
+    let id: i32 = row.try_get("id")?;
+    info!("Created new limit order with ID: {}", id);
+
+    Ok(id)
+}
+
+/// Get user's active limit orders
+pub async fn get_active_limit_orders(
+    pool: &PgPool,
+    telegram_id: i64,
+) -> Result<Vec<LimitOrder>, SqlxError> {
+    // Get user ID from telegram_id
+    let user = get_user_by_telegram_id(pool, telegram_id).await?;
+
+    let rows = sqlx::query_as::<_, LimitOrder>(
+        "SELECT * FROM limit_orders
+         WHERE user_id = $1 AND status = $2
+         ORDER BY created_at DESC",
+    )
+    .bind(user.id)
+    .bind(LimitOrderStatus::Active.to_string())
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows)
+}
+
+/// Get all user's limit orders (with optional status filter)
+pub async fn get_user_limit_orders(
+    pool: &PgPool,
+    telegram_id: i64,
+    status: Option<&LimitOrderStatus>,
+) -> Result<Vec<LimitOrder>, SqlxError> {
+    // Get user ID from telegram_id
+    let user = get_user_by_telegram_id(pool, telegram_id).await?;
+
+    let rows = if let Some(status) = status {
+        sqlx::query_as::<_, LimitOrder>(
+            "SELECT * FROM limit_orders
+             WHERE user_id = $1 AND status = $2
+             ORDER BY updated_at DESC",
+        )
+        .bind(user.id)
+        .bind(status.to_string())
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_as::<_, LimitOrder>(
+            "SELECT * FROM limit_orders
+             WHERE user_id = $1
+             ORDER BY updated_at DESC",
+        )
+        .bind(user.id)
+        .fetch_all(pool)
+        .await?
+    };
+
+    Ok(rows)
+}
+
+/// Update limit order status
+pub async fn update_limit_order_status(
+    pool: &PgPool,
+    order_id: i32,
+    status: &LimitOrderStatus,
+    tx_signature: Option<&str>,
+) -> Result<PgQueryResult, SqlxError> {
+    let now = Utc::now();
+    let status_str = status.to_string();
+
+    let result = if let Some(signature) = tx_signature {
+        sqlx::query(
+            "UPDATE limit_orders
+             SET status = $1, updated_at = $2, tx_signature = $3
+             WHERE id = $4",
+        )
+        .bind(&status_str)
+        .bind(now)
+        .bind(signature)
+        .bind(order_id)
+        .execute(pool)
+        .await?
+    } else {
+        sqlx::query(
+            "UPDATE limit_orders
+             SET status = $1, updated_at = $2
+             WHERE id = $3",
+        )
+        .bind(&status_str)
+        .bind(now)
+        .bind(order_id)
+        .execute(pool)
+        .await?
+    };
+
+    info!(
+        "Updated limit order status: id={}, status={}",
+        order_id, &status_str
+    );
+    Ok(result)
+}
+
+/// Update current price for a limit order
+pub async fn update_limit_order_current_price(
+    pool: &PgPool,
+    order_id: i32,
+    current_price_in_sol: f64,
+) -> Result<PgQueryResult, SqlxError> {
+    let now = Utc::now();
+
+    let result = sqlx::query(
+        "UPDATE limit_orders
+         SET current_price_in_sol = $1, updated_at = $2
+         WHERE id = $3",
+    )
+    .bind(current_price_in_sol)
+    .bind(now)
+    .bind(order_id)
+    .execute(pool)
+    .await?;
+
+    info!(
+        "Updated limit order current price: id={}, price={}",
+        order_id, current_price_in_sol
+    );
+    Ok(result)
+}
+
+/// Get a specific limit order by ID
+pub async fn get_limit_order_by_id(
+    pool: &PgPool,
+    order_id: i32,
+) -> Result<Option<LimitOrder>, SqlxError> {
+    let order = sqlx::query_as::<_, LimitOrder>("SELECT * FROM limit_orders WHERE id = $1")
+        .bind(order_id)
+        .fetch_optional(pool)
+        .await?;
+
+    Ok(order)
+}
+
+/// Cancel a limit order
+pub async fn cancel_limit_order(pool: &PgPool, order_id: i32) -> Result<PgQueryResult, SqlxError> {
+    update_limit_order_status(pool, order_id, &LimitOrderStatus::Cancelled, None).await
+}
+
+/// Get all active limit orders across all users
+pub async fn get_all_active_limit_orders(pool: &PgPool) -> Result<Vec<LimitOrder>, SqlxError> {
+    let rows = sqlx::query_as::<_, LimitOrder>(
+        "SELECT * FROM limit_orders
+         WHERE status = $1
+         ORDER BY created_at ASC",
+    )
+    .bind(LimitOrderStatus::Active.to_string())
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows)
+}
+
+/// Get user by ID
+pub async fn get_user_by_id(pool: &PgPool, user_id: i32) -> Result<User, SqlxError> {
+    let row = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(pool)
+        .await?;
+
+    Ok(row)
 }

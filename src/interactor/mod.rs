@@ -2,6 +2,7 @@ use async_trait::async_trait;
 
 pub mod balance_interactor;
 pub mod db;
+pub mod limit_order_interactor;
 pub mod price_interactor;
 pub mod send_interactor;
 pub mod swap_interactor;
