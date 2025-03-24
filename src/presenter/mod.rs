@@ -4,6 +4,7 @@ pub mod balance_presenter;
 pub mod price_presenter;
 pub mod send_presenter;
 pub mod swap_presenter;
+pub mod trade_presenter;
 pub mod wallet_presenter;
 
 // Base presenter trait

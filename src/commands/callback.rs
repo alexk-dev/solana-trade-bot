@@ -6,7 +6,7 @@ use teloxide::{
     types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode},
 };
 
-use crate::commands::{help, price, send, swap, ui, wallet, CommandHandler, MyDialogue};
+use crate::commands::{help, price, send, trade, ui, wallet, CommandHandler, MyDialogue};
 use crate::di::ServiceContainer;
 use crate::entity::State;
 use crate::interactor::balance_interactor::{BalanceInteractor, BalanceInteractorImpl};
@@ -70,11 +70,6 @@ pub async fn handle_callback(
         if let msg = message.clone() {
             send::SendCommand::execute(bot, msg, telegram_id, Some(dialogue), services).await?;
         }
-    } else if callback_data == "swap" {
-        // Handle swap action
-        if let msg = message.clone() {
-            swap::SwapCommand::execute(bot, msg, telegram_id, Some(dialogue), services).await?;
-        }
     } else if callback_data == "price" {
         // Handle price action - show token selection
         show_price_selection(&bot, chat_id).await?;
@@ -89,56 +84,15 @@ pub async fn handle_callback(
     } else if callback_data == "refresh" {
         // Handle refresh action - update balance display
         handle_refresh(&bot, Some(message.clone()), telegram_id, services).await?;
-    } else if callback_data.starts_with("swap_from_") {
-        // Handle swap source token selection
-        let token = callback_data.strip_prefix("swap_from_").unwrap_or("SOL");
-        swap::handle_swap_from_selection(&bot, chat_id, token).await?;
-    } else if callback_data.contains("_to_") && callback_data.starts_with("swap_") {
-        // Parse tokens from the callback data (format: swap_SOURCE_TARGET)
-        let parts: Vec<&str> = callback_data.split('_').collect();
-        if parts.len() >= 3 {
-            let source_token = parts[1];
-            let target_token = parts[2];
-            swap::handle_swap_pair_selection(&bot, chat_id, source_token, target_token).await?;
-        }
-    } else if callback_data.starts_with("swap_amount_") {
-        // Handle swap with predefined amount
-        handle_swap_amount(&bot, &callback_data, chat_id, telegram_id, services).await?;
-    } else if callback_data.starts_with("swap_custom_") {
-        // Handle swap with custom amount
-        dialogue.update(State::AwaitingSwapDetails).await?;
-
-        // Extract tokens from callback_data (format: swap_custom_SOURCE_TARGET)
-        let parts: Vec<&str> = callback_data.split('_').collect();
-        if parts.len() >= 4 {
-            let source_token = parts[2];
-            let target_token = parts[3];
-
-            bot.send_message(
-                chat_id,
-                format!(
-                    "Enter the amount of {} you want to swap to {}:",
-                    source_token, target_token
-                ),
-            )
+    } else if callback_data == "buy" {
+        // Handle direct buy command
+        trade::BuyCommand::execute(bot, message.clone(), telegram_id, Some(dialogue), services)
             .await?;
-        } else {
-            bot.send_message(chat_id, "Please specify the amount to swap.")
-                .await?;
-        }
-    } else if callback_data.starts_with("buy")
-        || callback_data.starts_with("sell")
-        || callback_data == "positions"
-        || callback_data == "limit_orders"
-        || callback_data == "dca_orders"
-        || callback_data == "copy_trade"
-        || callback_data == "sniper"
-        || callback_data == "trenches"
-        || callback_data == "referrals"
-        || callback_data == "watchlist"
-        || callback_data == "withdraw"
-        || callback_data == "settings"
-    {
+    } else if callback_data == "sell" {
+        // Handle direct sell command
+        trade::SellCommand::execute(bot, message.clone(), telegram_id, Some(dialogue), services)
+            .await?;
+    } else {
         // Handle trading UI buttons
         bot.send_message(
             chat_id,
@@ -154,12 +108,7 @@ pub async fn handle_callback(
 pub async fn show_main_menu(bot: &Bot, chat_id: ChatId) -> Result<()> {
     let keyboard = ui::create_wallet_menu_keyboard();
 
-    bot.send_message(
-        chat_id,
-        "Welcome to Solana Wallet Bot! Please select an option:",
-    )
-    .reply_markup(keyboard)
-    .await?;
+    bot.send_message(chat_id, "").reply_markup(keyboard).await?;
 
     Ok(())
 }

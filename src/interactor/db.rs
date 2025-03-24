@@ -1,4 +1,4 @@
-use crate::entity::{Swap, Transaction, User};
+use crate::entity::{Swap, Trade, Transaction, User};
 use chrono::Utc;
 use log::info;
 use sqlx::{postgres::PgQueryResult, Error as SqlxError, PgPool, Row};
@@ -199,4 +199,79 @@ pub async fn get_user_swaps(pool: &PgPool, telegram_id: i64) -> Result<Vec<Swap>
     }
 
     Ok(swaps)
+}
+
+// Record a trade operation in the database
+pub async fn record_trade(
+    pool: &PgPool,
+    telegram_id: i64,
+    token_address: &str,
+    token_symbol: &str,
+    amount: f64,
+    price_in_sol: f64,
+    total_paid: f64,
+    trade_type: &str,
+    tx_signature: &Option<String>,
+    status: &str,
+) -> Result<i32, SqlxError> {
+    // Get user ID from telegram_id
+    let user = get_user_by_telegram_id(pool, telegram_id).await?;
+
+    let price_in_usdc = 0.0; // In a real implementation, get the actual USDC price
+
+    let row = sqlx::query(
+        "INSERT INTO trades (user_id, token_address, token_symbol, amount, price_in_sol, price_in_usdc, total_paid, trade_type, tx_signature, timestamp, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         RETURNING id",
+    )
+        .bind(user.id)
+        .bind(token_address)
+        .bind(token_symbol)
+        .bind(amount)
+        .bind(price_in_sol)
+        .bind(price_in_usdc)
+        .bind(total_paid)
+        .bind(trade_type)
+        .bind(tx_signature.as_deref())
+        .bind(Utc::now())
+        .bind(status)
+        .fetch_one(pool)
+        .await?;
+
+    let id: i32 = row.try_get("id")?;
+    info!("Recorded trade with ID: {}", id);
+
+    Ok(id)
+}
+
+// Get user trade history
+pub async fn get_user_trades(pool: &PgPool, telegram_id: i64) -> Result<Vec<Trade>, SqlxError> {
+    // Get user ID from telegram_id
+    let user = get_user_by_telegram_id(pool, telegram_id).await?;
+
+    let rows = sqlx::query("SELECT * FROM trades WHERE user_id = $1 ORDER BY timestamp DESC")
+        .bind(user.id)
+        .fetch_all(pool)
+        .await?;
+
+    let mut trades = Vec::new();
+    for row in rows {
+        let trade = Trade {
+            id: row.try_get("id")?,
+            user_id: row.try_get("user_id")?,
+            token_address: row.try_get("token_address")?,
+            token_symbol: row.try_get("token_symbol")?,
+            amount: row.try_get("amount")?,
+            price_in_sol: row.try_get("price_in_sol")?,
+            price_in_usdc: row.try_get("price_in_usdc")?,
+            total_paid: row.try_get("total_paid")?,
+            trade_type: row.try_get("trade_type")?,
+            tx_signature: row.try_get("tx_signature")?,
+            timestamp: row.try_get("timestamp")?,
+            status: row.try_get("status")?,
+        };
+        trades.push(trade);
+    }
+
+    Ok(trades)
 }

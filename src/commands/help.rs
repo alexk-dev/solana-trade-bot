@@ -26,14 +26,10 @@ impl CommandHandler for HelpCommand {
             msg.chat.id,
             "Available commands:\n\
             /start - Start working with the bot\n\
-            /create_wallet - Create a new Solana wallet\n\
-            /address - Show your wallet address and QR code\n\
-            /balance - Check your wallet balance\n\
-            /send - Send funds to another address\n\
-            /swap <amount> <source_token> <target_token> [<slippage>%] - Swap tokens via Raydium DEX (placeholder)\n\
-            /price <token_symbol> - Get current token price\n\
-            /help - Show this help"
-        ).await?;
+            /menu - Main menu\n\
+            /help - Show this help",
+        )
+        .await?;
 
         Ok(())
     }

@@ -5,6 +5,7 @@ pub mod db;
 pub mod price_interactor;
 pub mod send_interactor;
 pub mod swap_interactor;
+pub mod trade_interactor;
 pub mod wallet_interactor;
 
 // Base interactor trait

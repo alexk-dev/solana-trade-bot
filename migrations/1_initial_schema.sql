@@ -39,3 +39,26 @@ CREATE TABLE IF NOT EXISTS swaps (
 
 -- Create index on user_id in swaps
 CREATE INDEX IF NOT EXISTS idx_swaps_user_id ON swaps(user_id);
+
+CREATE TABLE IF NOT EXISTS trades (
+                                      id SERIAL PRIMARY KEY,
+                                      user_id INTEGER NOT NULL REFERENCES users(id),
+    token_address TEXT NOT NULL,
+    token_symbol TEXT NOT NULL,
+    amount DOUBLE PRECISION NOT NULL,
+    price_in_sol DOUBLE PRECISION NOT NULL,
+    price_in_usdc DOUBLE PRECISION NOT NULL,
+    total_paid DOUBLE PRECISION NOT NULL,
+    trade_type TEXT NOT NULL, -- "BUY" or "SELL"
+    tx_signature TEXT,
+    timestamp TIMESTAMPTZ NOT NULL,
+    status TEXT NOT NULL,
+
+    -- Add indexes for common queries
+    CONSTRAINT trade_type_check CHECK (trade_type IN ('BUY', 'SELL'))
+    );
+
+-- Add indexes
+CREATE INDEX IF NOT EXISTS idx_trades_user_id ON trades(user_id);
+CREATE INDEX IF NOT EXISTS idx_trades_token_address ON trades(token_address);
+CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp);

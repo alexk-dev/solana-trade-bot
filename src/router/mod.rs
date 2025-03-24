@@ -35,16 +35,34 @@ impl Router for TelegramRouter {
         use teloxide::dispatching::UpdateFilterExt;
 
         let services1 = self.services.clone();
+        let services2 = self.services.clone();
+        let services3 = self.services.clone();
         let services_for_callbacks = self.services.clone();
 
         // Use BotCommands enum with teloxide's command filter
-        let command_handler = teloxide::filter_command::<BotCommands, _>().branch(
-            case![BotCommands::Start].endpoint(
-                move |bot: Bot, msg: Message, dialogue: MyDialogue| {
+        let command_handler = teloxide::filter_command::<BotCommands, _>()
+            .branch(case![BotCommands::Start].endpoint(
+                move |bot: Bot, msg: Message, _dialogue: MyDialogue| {
                     let services_local = services1.clone();
                     let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
                     async move {
                         commands::start::StartCommand::execute(
+                            bot,
+                            msg,
+                            telegram_id,
+                            None,
+                            services_local,
+                        )
+                        .await
+                    }
+                },
+            ))
+            .branch(case![BotCommands::Menu].endpoint(
+                move |bot: Bot, msg: Message, dialogue: MyDialogue| {
+                    let services_local = services2.clone();
+                    let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
+                    async move {
+                        commands::menu::MenuCommand::execute(
                             bot,
                             msg,
                             telegram_id,
@@ -54,66 +72,124 @@ impl Router for TelegramRouter {
                         .await
                     }
                 },
-            ),
-        );
+            ))
+            .branch(case![BotCommands::Help].endpoint(
+                move |bot: Bot, msg: Message, dialogue: MyDialogue| {
+                    let services_local = services3.clone();
+                    let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
+                    async move {
+                        commands::help::HelpCommand::execute(
+                            bot,
+                            msg,
+                            telegram_id,
+                            Some(dialogue),
+                            services_local,
+                        )
+                        .await
+                    }
+                },
+            ));
 
         let services_for_dialog1 = self.services.clone();
         let services_for_dialog2 = self.services.clone();
         let services_for_dialog3 = self.services.clone();
         let services_for_dialog4 = self.services.clone();
+        let services_for_dialog5 = self.services.clone();
+        let services_for_dialog6 = self.services.clone();
+        let services_for_dialog7 = self.services.clone();
+        let services_for_dialog8 = self.services.clone();
 
-        let message_handler =
-            Update::filter_message().branch(command_handler).branch(
-                dptree::entry()
-                    .branch(case![State::AwaitingRecipientAddress].endpoint(
-                        move |bot: Bot, msg: Message, dialogue: MyDialogue| {
-                            let services = services_for_dialog1.clone();
+        let message_handler = Update::filter_message().branch(command_handler).branch(
+            dptree::entry()
+                .branch(case![State::AwaitingRecipientAddress].endpoint(
+                    move |bot: Bot, msg: Message, dialogue: MyDialogue| {
+                        let services = services_for_dialog1.clone();
+                        async move {
+                            commands::send::receive_recipient_address(bot, msg, dialogue, services)
+                                .await
+                        }
+                    },
+                ))
+                .branch(case![State::AwaitingAmount { recipient }].endpoint(
+                    move |bot: Bot, msg: Message, state: State, dialogue: MyDialogue| {
+                        let services = services_for_dialog2.clone();
+                        async move {
+                            commands::send::receive_amount(bot, msg, state, dialogue, services)
+                                .await
+                        }
+                    },
+                ))
+                .branch(
+                    case![State::AwaitingConfirmation {
+                        recipient,
+                        amount,
+                        token
+                    }]
+                    .endpoint(
+                        move |bot: Bot, msg: Message, state: State, dialogue: MyDialogue| {
+                            let services = services_for_dialog3.clone();
                             async move {
-                                commands::send::receive_recipient_address(
-                                    bot, msg, dialogue, services,
+                                commands::send::receive_confirmation(
+                                    bot, msg, state, dialogue, services,
                                 )
                                 .await
                             }
                         },
-                    ))
-                    .branch(case![State::AwaitingAmount { recipient }].endpoint(
+                    ),
+                )
+                .branch(case![State::AwaitingTokenAddress { trade_type }].endpoint(
+                    move |bot: Bot, msg: Message, state: State, dialogue: MyDialogue| {
+                        let services = services_for_dialog5.clone();
+                        async move {
+                            commands::trade::receive_token_address(
+                                bot, msg, state, dialogue, services,
+                            )
+                            .await
+                        }
+                    },
+                ))
+                .branch(
+                    case![State::AwaitingTradeAmount {
+                        trade_type,
+                        token_address,
+                        token_symbol,
+                        price_in_sol,
+                        price_in_usdc
+                    }]
+                    .endpoint(
                         move |bot: Bot, msg: Message, state: State, dialogue: MyDialogue| {
-                            let services = services_for_dialog2.clone();
+                            let services = services_for_dialog6.clone();
                             async move {
-                                commands::send::receive_amount(bot, msg, state, dialogue, services)
-                                    .await
+                                commands::trade::receive_trade_amount(
+                                    bot, msg, state, dialogue, services,
+                                )
+                                .await
                             }
                         },
-                    ))
-                    .branch(
-                        case![State::AwaitingConfirmation {
-                            recipient,
-                            amount,
-                            token
-                        }]
-                        .endpoint(
-                            move |bot: Bot, msg: Message, state: State, dialogue: MyDialogue| {
-                                let services = services_for_dialog3.clone();
-                                async move {
-                                    commands::send::receive_confirmation(
-                                        bot, msg, state, dialogue, services,
-                                    )
-                                    .await
-                                }
-                            },
-                        ),
-                    )
-                    .branch(
-                        case![State::AwaitingSwapDetails].endpoint(
-                            move |bot: Bot, msg: Message, dialogue: MyDialogue| {
-                                let services = services_for_dialog4.clone();
-                                async move {
-                                    commands::swap::receive_swap_details(bot, msg, dialogue).await
-                                }
-                            },
-                        ),
                     ),
-            );
+                )
+                .branch(
+                    case![State::AwaitingTradeConfirmation {
+                        trade_type,
+                        token_address,
+                        token_symbol,
+                        amount,
+                        price_in_sol,
+                        total_sol
+                    }]
+                    .endpoint(
+                        move |bot: Bot, msg: Message, state: State, dialogue: MyDialogue| {
+                            let services = services_for_dialog7.clone();
+                            async move {
+                                commands::trade::receive_trade_confirmation(
+                                    bot, msg, state, dialogue, services,
+                                )
+                                .await
+                            }
+                        },
+                    ),
+                ),
+        );
 
         // Add callback query handler for our buttons
         let callback_handler = Update::filter_callback_query().endpoint(

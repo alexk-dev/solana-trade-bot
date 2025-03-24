@@ -4,6 +4,7 @@ mod swap;
 mod token;
 mod token_balance;
 mod token_price;
+mod trade;
 mod transaction;
 mod user;
 
@@ -14,5 +15,6 @@ pub use swap::Swap;
 pub use token::Token;
 pub use token_balance::TokenBalance;
 pub use token_price::TokenPrice;
+pub use trade::Trade;
 pub use transaction::Transaction;
 pub use user::User;

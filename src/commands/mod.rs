@@ -12,10 +12,11 @@ use teloxide::dispatching::dialogue::Dialogue;
 
 pub mod callback;
 pub mod help;
+pub mod menu;
 pub mod price;
 pub mod send;
 pub mod start;
-pub mod swap;
+pub mod trade;
 pub mod ui;
 pub mod wallet;
 
@@ -47,24 +48,8 @@ pub fn register_commands() -> Vec<(&'static str, &'static str)> {
             start::StartCommand::description(),
         ),
         (
-            wallet::CreateWalletCommand::command_name(),
-            wallet::CreateWalletCommand::description(),
-        ),
-        (
-            wallet::AddressCommand::command_name(),
-            wallet::AddressCommand::description(),
-        ),
-        (
-            send::SendCommand::command_name(),
-            send::SendCommand::description(),
-        ),
-        (
-            swap::SwapCommand::command_name(),
-            swap::SwapCommand::description(),
-        ),
-        (
-            price::PriceCommand::command_name(),
-            price::PriceCommand::description(),
+            menu::MenuCommand::command_name(),
+            menu::MenuCommand::description(),
         ),
         (
             help::HelpCommand::command_name(),
@@ -79,18 +64,8 @@ pub fn register_commands() -> Vec<(&'static str, &'static str)> {
 pub enum BotCommands {
     #[command(description = "start the bot and show the main menu")]
     Start,
-    #[command(rename = "create_wallet", description = "create a new Solana wallet")]
-    CreateWallet,
-    #[command(description = "show your wallet address and QR code")]
-    Balance,
-    #[command(description = "send funds to another address")]
-    Send,
-    #[command(description = "swap tokens via Jupiter")]
-    Swap,
-    #[command(description = "get price for a token")]
-    Price,
-    #[command(description = "display this help message")]
-    Help,
     #[command(description = "show the main menu")]
     Menu,
+    #[command(description = "display this help message")]
+    Help,
 }

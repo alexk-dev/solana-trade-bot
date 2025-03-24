@@ -62,10 +62,12 @@ impl TelegramBalanceView {
     ) -> String {
         // If there are token balances, display them in a separate message
         if !token_balances.is_empty() {
-            let mut tokens_text = "<b>Token Balances</b>\n\n".to_string();
+            let mut tokens_text = "\n\n<b>Token Balances</b>\n\n".to_string();
+            let mut any_token_gt_zero = false;
 
             for token in token_balances {
                 if token.amount > 0.0 {
+                    any_token_gt_zero = true;
                     // Get USD value for this token
                     let token_usd = usd_values
                         .iter()
@@ -83,6 +85,10 @@ impl TelegramBalanceView {
                             .push_str(&format!("• <b>{}</b>: {:.6}\n", token.symbol, token.amount));
                     }
                 }
+            }
+
+            if (!any_token_gt_zero) {
+                return String::new();
             }
 
             return tokens_text;
@@ -135,7 +141,7 @@ impl BalanceView for TelegramBalanceView {
         let sol_text = format!(
             "<b>Solana</b> · 🔑\n\
             <code>{}</code>\n\n\
-            Balance: <b>{:.6}</b> SOL (${:.2})\n\n",
+            Balance: <b>{:.6}</b> SOL (${:.2})",
             address,
             sol_balance,
             sol_balance * sol_price
@@ -147,7 +153,7 @@ impl BalanceView for TelegramBalanceView {
 
         let updated_text = format!(
             "—\n\n\
-            Updated: {}",
+            Updated: {} UTC",
             chrono::Utc::now().format("%H:%M:%S")
         );
 
