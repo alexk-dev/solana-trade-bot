@@ -44,10 +44,10 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the compiled binary from the builder stage
-COPY --from=builder /app/target/release/solana_telegram_wallet /app/solana_telegram_wallet
+COPY --from=builder /app/target/release/solana-trade-bot /app/solana-trade-bot
 
 # Copy migrations folder
 COPY --from=builder /app/migrations /app/migrations
 
 # Run the binary
-CMD ["/app/solana_telegram_wallet"]
+CMD ["/app/solana-trade-bot"]
