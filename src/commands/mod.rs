@@ -49,6 +49,10 @@ pub fn register_commands() -> Vec<(&'static str, &'static str)> {
             start::StartCommand::description(),
         ),
         (
+            wallet::CreateWalletCommand::command_name(),
+            wallet::CreateWalletCommand::description(),
+        ),
+        (
             menu::MenuCommand::command_name(),
             menu::MenuCommand::description(),
         ),
@@ -65,6 +69,8 @@ pub fn register_commands() -> Vec<(&'static str, &'static str)> {
 pub enum BotCommands {
     #[command(description = "start the bot and show the main menu")]
     Start,
+    #[command(rename = "create_wallet", description = "create a new Solana wallet")]
+    CreateWallet,
     #[command(description = "show the main menu")]
     Menu,
     #[command(description = "display this help message")]

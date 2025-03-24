@@ -7,8 +7,11 @@ use super::{CommandHandler, MyDialogue};
 use crate::di::ServiceContainer;
 use crate::interactor::balance_interactor::BalanceInteractorImpl;
 use crate::interactor::db;
+use crate::interactor::wallet_interactor::WalletInteractorImpl;
 use crate::presenter::balance_presenter::{BalancePresenter, BalancePresenterImpl};
+use crate::presenter::wallet_presenter::{WalletPresenter, WalletPresenterImpl};
 use crate::view::balance_view::TelegramBalanceView;
+use crate::view::wallet_view::TelegramWalletView;
 
 pub struct StartCommand;
 
@@ -57,6 +60,36 @@ impl CommandHandler for StartCommand {
                 .await?;
         }
 
+        // Check if user has a wallet and create one if not
+        let user = db::get_user_by_telegram_id(&db_pool, telegram_id).await?;
+
+        if user.solana_address.is_none() {
+            info!(
+                "User {} does not have a wallet. Creating one automatically.",
+                telegram_id
+            );
+
+            // Create wallet interactor and presenter
+            let wallet_interactor = Arc::new(WalletInteractorImpl::new(db_pool.clone()));
+            let wallet_view = Arc::new(TelegramWalletView::new(bot.clone(), chat_id));
+            let wallet_presenter = WalletPresenterImpl::new(wallet_interactor, wallet_view);
+
+            // Create wallet
+            match wallet_presenter.create_wallet(telegram_id).await {
+                Ok(()) => {
+                    bot.send_message(
+                        chat_id,
+                        "I've automatically created a Solana wallet for you! ✅\nYou can now send and receive tokens.",
+                    ).await?;
+                }
+                Err(e) => {
+                    info!("Failed to auto-create wallet: {}", e);
+                    // Continue without wallet - will show balance page with option to create wallet
+                }
+            }
+        }
+
+        // Display balance (or no wallet message)
         let solana_client = services.solana_client();
         let price_service = services.price_service();
         let interactor = Arc::new(BalanceInteractorImpl::new(

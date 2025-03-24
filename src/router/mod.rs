@@ -37,6 +37,7 @@ impl Router for TelegramRouter {
         let services1 = self.services.clone();
         let services2 = self.services.clone();
         let services3 = self.services.clone();
+        let services4 = self.services.clone();
         let services_for_callbacks = self.services.clone();
 
         // Use BotCommands enum with teloxide's command filter
@@ -73,9 +74,25 @@ impl Router for TelegramRouter {
                     }
                 },
             ))
-            .branch(case![BotCommands::Help].endpoint(
+            .branch(case![BotCommands::CreateWallet].endpoint(
                 move |bot: Bot, msg: Message, dialogue: MyDialogue| {
                     let services_local = services3.clone();
+                    let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
+                    async move {
+                        commands::wallet::CreateWalletCommand::execute(
+                            bot,
+                            msg,
+                            telegram_id,
+                            Some(dialogue),
+                            services_local,
+                        )
+                        .await
+                    }
+                },
+            ))
+            .branch(case![BotCommands::Help].endpoint(
+                move |bot: Bot, msg: Message, dialogue: MyDialogue| {
+                    let services_local = services4.clone();
                     let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
                     async move {
                         commands::help::HelpCommand::execute(
