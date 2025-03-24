@@ -1,6 +1,8 @@
+use crate::commands::ui;
 use crate::entity::TokenBalance;
 use anyhow::Result;
 use async_trait::async_trait;
+use chrono;
 use teloxide::{
     prelude::*,
     types::{Message, ParseMode},
@@ -10,6 +12,7 @@ use teloxide::{
 #[async_trait]
 pub trait BalanceView: Send + Sync {
     async fn display_loading(&self) -> Result<Option<Message>>;
+    async fn display_loading_update(&self, message: Message) -> Result<Option<Message>>;
     async fn display_balances(
         &self,
         address: String,
@@ -19,6 +22,7 @@ pub trait BalanceView: Send + Sync {
         total_usd: f64,
         message: Option<Message>,
     ) -> Result<()>;
+
     async fn display_no_wallet(&self, message: Option<Message>) -> Result<()>;
     async fn display_error(&self, error_message: String, message: Option<Message>) -> Result<()>;
 }
@@ -40,6 +44,52 @@ impl TelegramBalanceView {
         }
         format!("{}...{}", &address[..6], &address[address.len() - 4..])
     }
+
+    fn format_total_portfolio_text(&self, total_usd: f64) -> String {
+        // Add total portfolio value
+        if total_usd > 0.0 {
+            let text = format!("<b>Total Portfolio Value:</b> ${:.2}", total_usd);
+
+            return text;
+        }
+
+        String::new()
+    }
+    fn format_spl_tokens_text(
+        &self,
+        token_balances: &Vec<TokenBalance>,
+        usd_values: &Vec<(String, f64)>,
+    ) -> String {
+        // If there are token balances, display them in a separate message
+        if !token_balances.is_empty() {
+            let mut tokens_text = "<b>Token Balances</b>\n\n".to_string();
+
+            for token in token_balances {
+                if token.amount > 0.0 {
+                    // Get USD value for this token
+                    let token_usd = usd_values
+                        .iter()
+                        .find(|(symbol, _)| symbol == &token.symbol)
+                        .map(|(_, value)| *value)
+                        .unwrap_or(0.0);
+
+                    if token_usd > 0.0 {
+                        tokens_text.push_str(&format!(
+                            "• <b>{}</b>: {:.6} (${:.2})\n",
+                            token.symbol, token.amount, token_usd
+                        ));
+                    } else {
+                        tokens_text
+                            .push_str(&format!("• <b>{}</b>: {:.6}\n", token.symbol, token.amount));
+                    }
+                }
+            }
+
+            return tokens_text;
+        }
+
+        String::new()
+    }
 }
 
 #[async_trait]
@@ -50,7 +100,20 @@ impl BalanceView for TelegramBalanceView {
             .send_message(self.chat_id, "Fetching balance and token information...")
             .await?;
 
-        Ok(Some(message.clone()))
+        Ok(Some(message))
+    }
+
+    async fn display_loading_update(&self, message: Message) -> Result<Option<Message>> {
+        let updated_msg = self
+            .bot
+            .edit_message_text(
+                self.chat_id,
+                message.id,
+                "Refreshing balance information...",
+            )
+            .await?;
+
+        Ok(Some(updated_msg))
     }
 
     async fn display_balances(
@@ -62,74 +125,54 @@ impl BalanceView for TelegramBalanceView {
         total_usd: f64,
         message: Option<Message>,
     ) -> Result<()> {
-        // Format balances with USD values
-        let mut response = format!(
-            "💰 <b>Wallet Balance {}</b>\n\n",
-            Self::format_address(&address)
-        );
-
-        // Show SOL balance with USD
-        let sol_usd = usd_values
+        // Get SOL price in USD if available
+        let sol_price = usd_values
             .iter()
             .find(|(symbol, _)| symbol == "SOL")
-            .map(|(_, value)| *value)
-            .unwrap_or(0.0);
-        response.push_str(&format!(
-            "• <b>SOL</b>: {:.6} (~${:.2})\n",
-            sol_balance, sol_usd
-        ));
+            .map(|(_, value)| value / sol_balance)
+            .unwrap_or(100.0); // todo: update SOL price
 
-        // Sort tokens by USD value (descending)
-        let mut token_display: Vec<(TokenBalance, f64)> = token_balances
-            .iter()
-            .map(|token| {
-                let usd = usd_values
-                    .iter()
-                    .find(|(sym, _)| sym == &token.symbol)
-                    .map(|(_, val)| *val)
-                    .unwrap_or(0.0);
-                (token.clone(), usd)
-            })
-            .filter(|(token, _)| token.amount > 0.0) // Filter out zero balances
-            .collect();
+        let sol_text = format!(
+            "<b>Solana</b> · 🔑\n\
+            <code>{}</code>\n\n\
+            Balance: <b>{:.6}</b> SOL (${:.2})\n\n",
+            address,
+            sol_balance,
+            sol_balance * sol_price
+        );
 
-        token_display.sort_by(|(_, usd1), (_, usd2)| {
-            usd2.partial_cmp(usd1).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        let token_text = self.format_spl_tokens_text(&token_balances, &usd_values);
 
-        // Add token balances with USD values
-        if !token_display.is_empty() {
-            response.push_str("\n<b>SPL Tokens:</b>\n");
-            for (token, usd) in token_display {
-                if usd > 0.0 {
-                    response.push_str(&format!(
-                        "• <b>{}</b>: {:.6} (~${:.2})\n",
-                        token.symbol, token.amount, usd
-                    ));
-                } else {
-                    response.push_str(&format!("• <b>{}</b>: {:.6}\n", token.symbol, token.amount));
-                }
-            }
-        }
+        let portfolio_total = self.format_total_portfolio_text(total_usd);
 
-        // Add total portfolio value
-        if total_usd > 0.0 {
-            response.push_str(&format!(
-                "\n<b>Total Portfolio Value:</b> ~${:.2}",
-                total_usd
-            ));
-        }
+        let updated_text = format!(
+            "—\n\n\
+            Updated: {}",
+            chrono::Utc::now().format("%H:%M:%S")
+        );
 
-        // Update the status message with the balance info
+        let text = sol_text
+            + token_text.as_str()
+            + "\n\n"
+            + portfolio_total.as_str()
+            + "\n\n"
+            + updated_text.as_str();
+
+        // Get the keyboard from UI module
+        let keyboard = ui::create_wallet_menu_keyboard();
+
+        // Update existing message or send a new one
         if let Some(msg) = message {
             self.bot
-                .edit_message_text(self.chat_id, msg.id, response)
+                .edit_message_text(self.chat_id, msg.id, text)
                 .parse_mode(ParseMode::Html)
+                .reply_markup(keyboard)
                 .await?;
         } else {
             self.bot
-                .send_message(self.chat_id, response)
+                .send_message(self.chat_id, text)
                 .parse_mode(ParseMode::Html)
+                .reply_markup(keyboard)
                 .await?;
         }
 
@@ -138,13 +181,18 @@ impl BalanceView for TelegramBalanceView {
 
     async fn display_no_wallet(&self, message: Option<Message>) -> Result<()> {
         let text = "You don't have a wallet yet. Use /create_wallet to create a new wallet.";
+        let keyboard = ui::create_wallet_menu_keyboard();
 
         if let Some(msg) = message {
             self.bot
                 .edit_message_text(self.chat_id, msg.id, text)
+                .reply_markup(keyboard)
                 .await?;
         } else {
-            self.bot.send_message(self.chat_id, text).await?;
+            self.bot
+                .send_message(self.chat_id, text)
+                .reply_markup(keyboard)
+                .await?;
         }
 
         Ok(())

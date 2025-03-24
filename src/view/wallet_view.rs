@@ -39,12 +39,12 @@ impl WalletView for TelegramWalletView {
                     "Your Solana wallet has been successfully created!\n\n\
                 Public address: `{}`\n\n\
                 Mnemonic phrase: `{}`\n\n\
-                *Important:* Save your mnemonic phrase - it's needed to recover access!",
+                <b>Important:</b> Save your mnemonic phrase - it's needed to recover access!",
                     address,
                     mnemonic
                 ),
             )
-            .parse_mode(ParseMode::MarkdownV2)
+            .parse_mode(ParseMode::Html)
             .await?;
 
         Ok(())
@@ -58,9 +58,9 @@ impl WalletView for TelegramWalletView {
         self.bot
             .send_message(
                 self.chat_id,
-                format!("Your Solana wallet address:\n\n`{}`", address),
+                format!("Your Solana wallet address:\n\n <b>{}</b>", address),
             )
-            .parse_mode(ParseMode::MarkdownV2)
+            .parse_mode(ParseMode::Html)
             .await?;
 
         // Send QR code as photo

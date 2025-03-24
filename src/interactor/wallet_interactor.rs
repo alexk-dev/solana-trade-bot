@@ -45,7 +45,6 @@ impl WalletInteractor for WalletInteractorImpl {
 
     async fn get_wallet_info(&self, telegram_id: i64) -> Result<Option<(String, String)>> {
         let user = db::get_user_by_telegram_id(&self.db_pool, telegram_id).await?;
-
         match (user.solana_address, user.mnemonic) {
             (Some(address), Some(mnemonic)) => Ok(Some((address, mnemonic))),
             _ => Ok(None),

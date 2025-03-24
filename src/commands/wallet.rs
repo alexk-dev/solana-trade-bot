@@ -1,9 +1,12 @@
 use anyhow::Result;
 use log::info;
 use std::sync::Arc;
-use teloxide::prelude::*;
+use teloxide::{
+    prelude::*,
+    types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode},
+};
 
-use super::{CommandHandler, MyDialogue};
+use super::{ui, CommandHandler, MyDialogue};
 use crate::di::ServiceContainer;
 use crate::interactor::wallet_interactor::WalletInteractorImpl;
 use crate::presenter::wallet_presenter::{WalletPresenter, WalletPresenterImpl};
@@ -23,10 +26,10 @@ impl CommandHandler for CreateWalletCommand {
     async fn execute(
         bot: Bot,
         msg: Message,
+        telegram_id: i64,
         _dialogue: Option<MyDialogue>,
         services: Arc<ServiceContainer>,
     ) -> Result<()> {
-        let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
         let chat_id = msg.chat.id;
 
         info!(
@@ -36,11 +39,24 @@ impl CommandHandler for CreateWalletCommand {
 
         let db_pool = services.db_pool();
         let interactor = Arc::new(WalletInteractorImpl::new(db_pool));
-        let view = Arc::new(TelegramWalletView::new(bot, chat_id));
+        let view = Arc::new(TelegramWalletView::new(bot.clone(), chat_id));
         let presenter = WalletPresenterImpl::new(interactor, view);
 
-        // Execute the use case via presenter
-        presenter.create_wallet(telegram_id).await
+        let result = presenter.create_wallet(telegram_id).await;
+
+        // After creating wallet, show the main menu again with buttons
+        if result.is_ok() {
+            // Show user the main menu
+            let keyboard = ui::create_wallet_menu_keyboard();
+            bot.send_message(
+                chat_id,
+                "Your wallet has been created successfully. What would you like to do next?",
+            )
+            .reply_markup(keyboard)
+            .await?;
+        }
+
+        Ok(())
     }
 }
 
@@ -58,19 +74,22 @@ impl CommandHandler for AddressCommand {
     async fn execute(
         bot: Bot,
         msg: Message,
+        telegram_id: i64,
         _dialogue: Option<MyDialogue>,
         services: Arc<ServiceContainer>,
     ) -> Result<()> {
-        let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
         let chat_id = msg.chat.id;
 
         info!("Address command received from Telegram ID: {}", telegram_id);
 
         let db_pool = services.db_pool();
         let interactor = Arc::new(WalletInteractorImpl::new(db_pool));
-        let view = Arc::new(TelegramWalletView::new(bot, chat_id));
+        let view = Arc::new(TelegramWalletView::new(bot.clone(), chat_id));
         let presenter = WalletPresenterImpl::new(interactor, view);
 
-        presenter.show_wallet_address(telegram_id).await
+        // Show address with QR code
+        presenter.show_wallet_address(telegram_id).await;
+
+        Ok(())
     }
 }

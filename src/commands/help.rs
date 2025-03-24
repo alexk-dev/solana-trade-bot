@@ -18,6 +18,7 @@ impl CommandHandler for HelpCommand {
     async fn execute(
         bot: Bot,
         msg: Message,
+        telegram_id: i64,
         _dialogue: Option<MyDialogue>,
         _services: Arc<ServiceContainer>,
     ) -> Result<()> {

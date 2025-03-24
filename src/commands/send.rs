@@ -24,6 +24,7 @@ impl CommandHandler for SendCommand {
     async fn execute(
         bot: Bot,
         msg: Message,
+        telegram_id: i64,
         dialogue: Option<MyDialogue>,
         services: Arc<ServiceContainer>,
     ) -> Result<()> {

@@ -6,7 +6,7 @@
 use anyhow::Context;
 use dotenv::dotenv;
 use log::{error, info};
-use solana_wallet_bot::{create_solana_client, Router};
+use solana_trade_bot::{create_solana_client, Router};
 use sqlx::postgres::PgPoolOptions;
 use std::env;
 use std::sync::Arc;
@@ -23,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
     info!(
         "Starting Solana Wallet Telegram Bot v{}",
-        solana_wallet_bot::VERSION
+        solana_trade_bot::VERSION
     );
 
     // Load and validate environment variables
@@ -79,7 +79,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize the application components
     let (router, bot, service_container, storage) =
-        solana_wallet_bot::create_application(bot, db_pool, solana_client);
+        solana_trade_bot::create_application(bot, db_pool, solana_client);
 
     // Get the handler from the router
     let handler = router.setup_handlers();
