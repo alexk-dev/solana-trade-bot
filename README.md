@@ -94,8 +94,7 @@ docker run -d --env-file .env --name solana-trade-bot solana-trade-bot
 ```
 
 ## License
-
-This project is licensed under the Server Side Public License (SSPL) - see the [LICENSE](LICENSE) file for details.
+Distributed under the business friendly [MIT license](https://opensource.org/licenses/MIT).
 
 ## Disclaimer
 
