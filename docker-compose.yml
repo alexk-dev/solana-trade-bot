@@ -28,6 +28,8 @@ services:
       - RUST_LOG=info
     networks:
       - bot-network
+    volumes:
+      - .env:/app/.env
     restart: unless-stopped
 
 networks:
