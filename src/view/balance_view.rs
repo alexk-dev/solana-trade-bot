@@ -55,6 +55,7 @@ impl TelegramBalanceView {
 
         String::new()
     }
+
     fn format_spl_tokens_text(
         &self,
         token_balances: &Vec<TokenBalance>,
@@ -131,20 +132,25 @@ impl BalanceView for TelegramBalanceView {
         total_usd: f64,
         message: Option<Message>,
     ) -> Result<()> {
-        // Get SOL price in USD if available
-        let sol_price = usd_values
+        // Get SOL price in USD from the usd_values array
+        let sol_usd_value = usd_values
             .iter()
             .find(|(symbol, _)| symbol == "SOL")
-            .map(|(_, value)| value / sol_balance)
-            .unwrap_or(100.0); // todo: update SOL price
+            .map(|(_, value)| *value)
+            .unwrap_or(0.0);
+
+        // Calculate SOL price by dividing the USD value by the balance (if balance > 0)
+        let sol_price = if sol_balance > 0.0 {
+            sol_usd_value / sol_balance
+        } else {
+            0.0
+        };
 
         let sol_text = format!(
             "<b>Solana</b> · 🔑\n\
             <code>{}</code>\n\n\
             Balance: <b>{:.6}</b> SOL (${:.2})",
-            address,
-            sol_balance,
-            sol_balance * sol_price
+            address, sol_balance, sol_usd_value
         );
 
         let token_text = self.format_spl_tokens_text(&token_balances, &usd_values);

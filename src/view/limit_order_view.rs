@@ -180,7 +180,7 @@ impl LimitOrderView for TelegramLimitOrderView {
                     format!(
                         " ({:.2}% {})",
                         diff_percent.abs(),
-                        if diff_percent < 0.0 { "below" } else { "above" }
+                        if diff_percent < 0.0 { "above" } else { "below" }
                     )
                 } else {
                     "".to_string()

@@ -4,6 +4,7 @@ use crate::solana;
 use crate::solana::jupiter::PriceService;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use log::info;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -63,20 +64,21 @@ impl BalanceInteractor for BalanceInteractorImpl {
         // Initialize vector for USD values
         let mut usd_values = Vec::new();
 
+        // Get SOL price first for reference
+        let sol_price = match self.price_service.get_sol_price().await {
+            Ok(price) => price,
+            Err(e) => {
+                info!("Error fetching SOL price: {}. Using fallback.", e);
+                0.0 // Fallback to zero if price service fails
+            }
+        };
+
+        // Calculate SOL USD value
+        let sol_usd = sol_balance * sol_price;
+        usd_values.push((String::from("SOL"), sol_usd));
+
+        // Get prices for other tokens if there are any
         if !token_balances.is_empty() {
-            // Get SOL price first for reference
-            let sol_price = match self.price_service.get_sol_price().await {
-                Ok(price) => price,
-                Err(e) => {
-                    return Err(anyhow!("Error fetching SOL price: {}", e));
-                }
-            };
-
-            // Calculate SOL USD value
-            let sol_usd = sol_balance * sol_price;
-            usd_values.push((String::from("SOL"), sol_usd));
-
-            // Get prices for other tokens
             for token in &token_balances {
                 if token.amount > 0.0 {
                     match self
@@ -89,6 +91,7 @@ impl BalanceInteractor for BalanceInteractorImpl {
                             usd_values.push((token.symbol.clone(), usd_value));
                         }
                         Err(e) => {
+                            info!("Error fetching price for {}: {}", token.symbol, e);
                             usd_values.push((token.symbol.clone(), 0.0)); // Default to 0 if error
                         }
                     }
