@@ -188,7 +188,18 @@ impl Router for TelegramRouter {
                             }
                         },
                     ),
-                ),
+                )
+                .branch(case![State::AwaitingPriceTokenAddress].endpoint(
+                    move |bot: Bot, msg: Message, dialogue: MyDialogue| {
+                        let services = services_for_dialog8.clone();
+                        async move {
+                            commands::price::receive_price_token_address(
+                                bot, msg, dialogue, services,
+                            )
+                            .await
+                        }
+                    },
+                )),
         );
 
         // Add callback query handler for our buttons

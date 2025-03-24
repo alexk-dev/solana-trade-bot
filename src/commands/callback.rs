@@ -50,9 +50,9 @@ pub async fn handle_callback(
     }
 
     // Process the callback based on its type
-    if callback_data == "main_menu" {
-        // Show main menu
-        show_main_menu(&bot, chat_id).await?;
+    if callback_data == ("menu") || callback_data == "refresh" {
+        // Handle refresh action - update balance display
+        handle_refresh(&bot, Some(message.clone()), telegram_id, services).await?;
     } else if callback_data == "create_wallet" {
         // Handle create wallet action
         if let msg = message.clone() {
@@ -72,7 +72,7 @@ pub async fn handle_callback(
         }
     } else if callback_data == "price" {
         // Handle price action - show token selection
-        show_price_selection(&bot, chat_id).await?;
+        handle_check_price(&bot, chat_id, dialogue).await?;
     } else if callback_data.starts_with("price_") {
         // Handle specific token price request
         handle_price_selection(&bot, &callback_data, chat_id, services).await?;
@@ -81,9 +81,6 @@ pub async fn handle_callback(
         if let msg = message.clone() {
             help::HelpCommand::execute(bot, msg, telegram_id, Some(dialogue), services).await?;
         }
-    } else if callback_data == "refresh" {
-        // Handle refresh action - update balance display
-        handle_refresh(&bot, Some(message.clone()), telegram_id, services).await?;
     } else if callback_data == "buy" {
         // Handle direct buy command
         trade::BuyCommand::execute(bot, message.clone(), telegram_id, Some(dialogue), services)
@@ -104,32 +101,16 @@ pub async fn handle_callback(
     Ok(())
 }
 
-// Function to show the main menu with buttons
-pub async fn show_main_menu(bot: &Bot, chat_id: ChatId) -> Result<()> {
-    let keyboard = ui::create_wallet_menu_keyboard();
-
-    bot.send_message(chat_id, "").reply_markup(keyboard).await?;
-
-    Ok(())
-}
-
 // Function to show token price selection
-async fn show_price_selection(bot: &Bot, chat_id: ChatId) -> Result<()> {
-    let price_keyboard = InlineKeyboardMarkup::new(vec![
-        vec![
-            InlineKeyboardButton::callback("SOL", "price_SOL"),
-            InlineKeyboardButton::callback("USDC", "price_USDC"),
-            InlineKeyboardButton::callback("USDT", "price_USDT"),
-        ],
-        vec![
-            InlineKeyboardButton::callback("RAY", "price_RAY"),
-            InlineKeyboardButton::callback("← Back", "main_menu"),
-        ],
-    ]);
+async fn handle_check_price(bot: &Bot, chat_id: ChatId, dialogue: MyDialogue) -> Result<()> {
+    dialogue.update(State::AwaitingPriceTokenAddress).await?;
 
-    bot.send_message(chat_id, "Select token to check price:")
-        .reply_markup(price_keyboard)
-        .await?;
+    // Prompt user for token address
+    bot.send_message(
+        chat_id,
+        "Please enter the token contract address you want to check the price for:",
+    )
+    .await?;
 
     Ok(())
 }

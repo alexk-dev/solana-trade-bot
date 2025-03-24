@@ -29,4 +29,5 @@ pub enum State {
         price_in_sol: f64,
         total_sol: f64,
     },
+    AwaitingPriceTokenAddress,
 }

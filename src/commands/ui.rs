@@ -9,7 +9,7 @@ pub fn create_wallet_menu_keyboard() -> InlineKeyboardMarkup {
         vec![
             InlineKeyboardButton::callback("Positions", "positions"),
             InlineKeyboardButton::callback("Limit Orders", "limit_orders"),
-            InlineKeyboardButton::callback("Watchlist", "watchlist"),
+            InlineKeyboardButton::callback("Check Price", "price"),
         ],
         vec![
             InlineKeyboardButton::callback("📤 Withdraw", "send"),
