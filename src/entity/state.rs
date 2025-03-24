@@ -1,4 +1,4 @@
-use crate::entity::LimitOrderType;
+use crate::entity::OrderType;
 
 #[derive(Clone, Default, Debug)]
 pub enum State {
@@ -14,17 +14,17 @@ pub enum State {
         token: String,
     },
     AwaitingTokenAddress {
-        trade_type: String,
+        trade_type: OrderType,
     },
     AwaitingTradeAmount {
-        trade_type: String,
+        trade_type: OrderType,
         token_address: String,
         token_symbol: String,
         price_in_sol: f64,
         price_in_usdc: f64,
     },
     AwaitingTradeConfirmation {
-        trade_type: String,
+        trade_type: OrderType,
         token_address: String,
         token_symbol: String,
         amount: f64,
@@ -34,17 +34,17 @@ pub enum State {
     AwaitingPriceTokenAddress,
     AwaitingLimitOrderType,
     AwaitingLimitOrderTokenAddress {
-        order_type: LimitOrderType,
+        order_type: OrderType,
     },
     AwaitingLimitOrderPriceAndAmount {
-        order_type: LimitOrderType,
+        order_type: OrderType,
         token_address: String,
         token_symbol: String,
         current_price_in_sol: f64,
         current_price_in_usdc: f64,
     },
     AwaitingLimitOrderConfirmation {
-        order_type: LimitOrderType,
+        order_type: OrderType,
         token_address: String,
         token_symbol: String,
         price_in_sol: f64,

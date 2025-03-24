@@ -1,7 +1,7 @@
 use super::{CommandHandler, MyDialogue};
 use crate::db;
 use crate::di::ServiceContainer;
-use crate::entity::State;
+use crate::entity::{OrderType, State};
 use crate::interactor::trade_interactor::{TradeInteractor, TradeInteractorImpl};
 use crate::presenter::trade_presenter::{TradePresenter, TradePresenterImpl};
 use crate::view::trade_view::TelegramTradeView;
@@ -35,7 +35,7 @@ impl CommandHandler for BuyCommand {
 
         dialogue
             .update(State::AwaitingTokenAddress {
-                trade_type: "BUY".to_string(),
+                trade_type: OrderType::Buy,
             })
             .await?;
 
@@ -55,7 +55,7 @@ impl CommandHandler for BuyCommand {
         let view = Arc::new(TelegramTradeView::new(bot, chat_id));
         let presenter = TradePresenterImpl::new(interactor, view);
 
-        presenter.start_trade_flow("BUY").await?;
+        presenter.start_trade_flow(&OrderType::Buy).await?;
 
         Ok(())
     }
@@ -86,7 +86,7 @@ impl CommandHandler for SellCommand {
 
         dialogue
             .update(State::AwaitingTokenAddress {
-                trade_type: "SELL".to_string(),
+                trade_type: OrderType::Sell,
             })
             .await?;
 
@@ -106,7 +106,7 @@ impl CommandHandler for SellCommand {
         let view = Arc::new(TelegramTradeView::new(bot, chat_id));
         let presenter = TradePresenterImpl::new(interactor, view);
 
-        presenter.start_trade_flow("SELL").await?;
+        presenter.start_trade_flow(&OrderType::Sell).await?;
 
         Ok(())
     }
@@ -147,7 +147,7 @@ pub async fn receive_token_address(
                     match interactor.get_token_info(address_text).await {
                         Ok((token_symbol, price_in_sol, price_in_usdc)) => {
                             // For sell actions, get the user's token balance
-                            if trade_type == "SELL" {
+                            if trade_type == OrderType::Sell {
                                 // Get user wallet address
                                 match db::get_user_by_telegram_id(&db_pool, telegram_id).await {
                                     Ok(user) => {
@@ -161,7 +161,7 @@ pub async fn receive_token_address(
                                                     // Update dialogue state
                                                     dialogue
                                                         .update(State::AwaitingTradeAmount {
-                                                            trade_type: trade_type.clone(),
+                                                            trade_type: trade_type,
                                                             token_address: address_text.to_string(),
                                                             token_symbol: token_symbol.clone(),
                                                             price_in_sol,
@@ -224,7 +224,7 @@ pub async fn receive_token_address(
                                     chat_id,
                                     format!(
                                         "Token: {} ({})\nCurrent price: {:.6} SOL (${:.2})\n\nHow many tokens do you want to {}?",
-                                        token_symbol, address_text, price_in_sol, price_in_usdc, trade_type.to_lowercase()
+                                        token_symbol, address_text, price_in_sol, price_in_usdc, trade_type.to_string().to_lowercase()
                                     ),
                                 )
                                     .await?;
@@ -292,7 +292,7 @@ pub async fn receive_trade_amount(
             ));
 
             // Handle amount validation differently for buy vs sell
-            if trade_type == "SELL" {
+            if trade_type == OrderType::Sell {
                 // Get user's address for balance check
                 match db::get_user_by_telegram_id(&db_pool, telegram_id).await {
                     Ok(user) => {

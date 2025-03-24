@@ -1,4 +1,4 @@
-use crate::entity::{LimitOrder, LimitOrderType};
+use crate::entity::{LimitOrder, OrderType};
 use anyhow::Result;
 use async_trait::async_trait;
 use teloxide::{
@@ -12,20 +12,30 @@ pub trait LimitOrderView: Send + Sync {
     async fn display_limit_orders(&self, orders: Vec<LimitOrder>) -> Result<()>;
     async fn display_no_orders(&self) -> Result<()>;
     async fn prompt_for_order_type(&self) -> Result<()>;
-    async fn prompt_for_token_address(&self, order_type: &LimitOrderType) -> Result<()>;
+    async fn prompt_for_token_address(&self, order_type: &OrderType) -> Result<()>;
     async fn display_invalid_token_address(&self) -> Result<()>;
     async fn display_token_info(
         &self,
-        order_type: &LimitOrderType,
+        order_type: &OrderType,
         token_address: &str,
         token_symbol: &str,
         current_price_in_sol: f64,
         current_price_in_usdc: f64,
     ) -> Result<()>;
     async fn display_invalid_price_amount(&self, error_message: String) -> Result<()>;
+    async fn prompt_for_confirmation_with_percentage(
+        &self,
+        order_type: &OrderType,
+        token_address: &str,
+        token_symbol: &str,
+        price_in_sol: f64,
+        amount: f64,
+        total_sol: f64,
+        percentage_info: String,
+    ) -> Result<()>;
     async fn prompt_for_confirmation(
         &self,
-        order_type: &LimitOrderType,
+        order_type: &OrderType,
         token_address: &str,
         token_symbol: &str,
         price_in_sol: f64,
@@ -34,15 +44,16 @@ pub trait LimitOrderView: Send + Sync {
     ) -> Result<()>;
     async fn display_order_creation_success(
         &self,
-        order_type: &LimitOrderType,
+        order_type: &OrderType,
         token_symbol: &str,
         price_in_sol: f64,
         amount: f64,
         order_id: i32,
+        total_sol: f64,
     ) -> Result<()>;
     async fn display_order_creation_error(
         &self,
-        order_type: &LimitOrderType,
+        order_type: &OrderType,
         token_symbol: &str,
         error_message: String,
     ) -> Result<()>;
@@ -63,6 +74,55 @@ impl TelegramLimitOrderView {
 
 #[async_trait]
 impl LimitOrderView for TelegramLimitOrderView {
+    async fn prompt_for_confirmation_with_percentage(
+        &self,
+        order_type: &OrderType,
+        token_address: &str,
+        token_symbol: &str,
+        price_in_sol: f64,
+        amount: f64,
+        total_sol: f64,
+        percentage_info: String,
+    ) -> Result<()> {
+        let order_type_str = match order_type {
+            OrderType::Buy => "BUY",
+            OrderType::Sell => "SELL",
+        };
+
+        self.bot
+            .send_message(
+                self.chat_id,
+                format!(
+                    "Please confirm your limit order:\n\n{} {:.6} SOL ({:.6} {} tokens{}) @ {:.6} SOL each\n\nDo you want to proceed? (yes/no)",
+                    order_type_str, total_sol, amount, token_symbol, percentage_info, price_in_sol
+                ),
+            )
+            .await?;
+        Ok(())
+    }
+
+    // For backward compatibility, implement the old method too
+    async fn prompt_for_confirmation(
+        &self,
+        order_type: &OrderType,
+        token_address: &str,
+        token_symbol: &str,
+        price_in_sol: f64,
+        amount: f64,
+        total_sol: f64,
+    ) -> Result<()> {
+        self.prompt_for_confirmation_with_percentage(
+            order_type,
+            token_address,
+            token_symbol,
+            price_in_sol,
+            amount,
+            total_sol,
+            "".to_string(),
+        )
+        .await
+    }
+
     async fn display_limit_orders(&self, orders: Vec<LimitOrder>) -> Result<()> {
         if orders.is_empty() {
             return self.display_no_orders().await;
@@ -99,8 +159,13 @@ impl LimitOrderView for TelegramLimitOrderView {
                 };
 
                 message.push_str(&format!(
-                    "• <b>#{}</b>: {:.6} {} at {:.6} SOL{}\n",
-                    order.id, order.amount, order.token_symbol, order.price_in_sol, price_diff
+                    "• <b>#{}</b>: {:.6} SOL ({:.6} {}) at {:.6} SOL{}\n",
+                    order.id,
+                    order.total_sol,
+                    order.amount,
+                    order.token_symbol,
+                    order.price_in_sol,
+                    price_diff
                 ));
             }
             message.push_str("\n");
@@ -122,8 +187,13 @@ impl LimitOrderView for TelegramLimitOrderView {
                 };
 
                 message.push_str(&format!(
-                    "• <b>#{}</b>: {:.6} {} at {:.6} SOL{}\n",
-                    order.id, order.amount, order.token_symbol, order.price_in_sol, price_diff
+                    "• <b>#{}</b>: {:.6} SOL ({:.6} {}) at {:.6} SOL{}\n",
+                    order.id,
+                    order.total_sol,
+                    order.amount,
+                    order.token_symbol,
+                    order.price_in_sol,
+                    price_diff
                 ));
             }
             message.push_str("\n");
@@ -190,10 +260,10 @@ impl LimitOrderView for TelegramLimitOrderView {
         Ok(())
     }
 
-    async fn prompt_for_token_address(&self, order_type: &LimitOrderType) -> Result<()> {
+    async fn prompt_for_token_address(&self, order_type: &OrderType) -> Result<()> {
         let action = match order_type {
-            LimitOrderType::Buy => "buy",
-            LimitOrderType::Sell => "sell",
+            OrderType::Buy => "buy",
+            OrderType::Sell => "sell",
         };
 
         self.bot
@@ -220,22 +290,22 @@ impl LimitOrderView for TelegramLimitOrderView {
 
     async fn display_token_info(
         &self,
-        order_type: &LimitOrderType,
+        order_type: &OrderType,
         token_address: &str,
         token_symbol: &str,
         current_price_in_sol: f64,
         current_price_in_usdc: f64,
     ) -> Result<()> {
         let action = match order_type {
-            LimitOrderType::Buy => "buy",
-            LimitOrderType::Sell => "sell",
+            OrderType::Buy => "buy",
+            OrderType::Sell => "sell",
         };
 
         self.bot
             .send_message(
                 self.chat_id,
                 format!(
-                    "Token: {} ({})\nCurrent price: {:.6} SOL (${:.2})\n\nPlease enter the price in SOL and amount of tokens to {} in the format:\n<price> <amount>\n\nExample: 0.5 100",
+                    "Token: {} ({})\nCurrent price: {:.6} SOL (${:.2})\n\nPlease enter the price in SOL and total volume in SOL to {} in the format:\n<price> <volume_in_sol>\n\nExample: 0.5 10 (10 SOL volume at price 0.5 SOL per token)",
                     token_symbol, token_address, current_price_in_sol, current_price_in_usdc, action
                 ),
             )
@@ -250,43 +320,18 @@ impl LimitOrderView for TelegramLimitOrderView {
         Ok(())
     }
 
-    async fn prompt_for_confirmation(
-        &self,
-        order_type: &LimitOrderType,
-        token_address: &str,
-        token_symbol: &str,
-        price_in_sol: f64,
-        amount: f64,
-        total_sol: f64,
-    ) -> Result<()> {
-        let order_type_str = match order_type {
-            LimitOrderType::Buy => "BUY",
-            LimitOrderType::Sell => "SELL",
-        };
-
-        self.bot
-            .send_message(
-                self.chat_id,
-                format!(
-                    "Please confirm your limit order:\n\n{} {} {} @ {:.6} SOL each\nTotal: {:.6} SOL\n\nDo you want to proceed? (yes/no)",
-                    order_type_str, amount, token_symbol, price_in_sol, total_sol
-                ),
-            )
-            .await?;
-        Ok(())
-    }
-
     async fn display_order_creation_success(
         &self,
-        order_type: &LimitOrderType,
+        order_type: &OrderType,
         token_symbol: &str,
         price_in_sol: f64,
         amount: f64,
         order_id: i32,
+        total_sol: f64,
     ) -> Result<()> {
         let order_type_str = match order_type {
-            LimitOrderType::Buy => "Buy",
-            LimitOrderType::Sell => "Sell",
+            OrderType::Buy => "Buy",
+            OrderType::Sell => "Sell",
         };
 
         let keyboard = InlineKeyboardMarkup::new(vec![vec![
@@ -298,8 +343,8 @@ impl LimitOrderView for TelegramLimitOrderView {
             .send_message(
                 self.chat_id,
                 format!(
-                    "✅ Limit {} Order #{} created successfully.\nAmount: {} {}\nPrice: {:.6} SOL per token\n\nYour order will execute when the market price reaches your specified price.",
-                    order_type_str, order_id, amount, token_symbol, price_in_sol
+                    "✅ Limit {} Order #{} created successfully.\nVolume: {:.6} SOL ({:.6} {} tokens)\nPrice: {:.6} SOL per token\n\nYour order will execute when the market price reaches your specified price.",
+                    order_type_str, order_id, total_sol, amount, token_symbol, price_in_sol
                 ),
             )
             .reply_markup(keyboard)
@@ -309,13 +354,13 @@ impl LimitOrderView for TelegramLimitOrderView {
 
     async fn display_order_creation_error(
         &self,
-        order_type: &LimitOrderType,
+        order_type: &OrderType,
         token_symbol: &str,
         error_message: String,
     ) -> Result<()> {
         let order_type_str = match order_type {
-            LimitOrderType::Buy => "buy",
-            LimitOrderType::Sell => "sell",
+            OrderType::Buy => "buy",
+            OrderType::Sell => "sell",
         };
 
         self.bot

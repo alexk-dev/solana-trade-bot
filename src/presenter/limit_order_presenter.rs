@@ -1,5 +1,5 @@
 // ./src/presenter/limit_order_presenter.rs
-use crate::entity::LimitOrderType;
+use crate::entity::OrderType;
 use crate::interactor::limit_order_interactor::LimitOrderInteractor;
 use crate::view::limit_order_view::LimitOrderView;
 use anyhow::Result;
@@ -11,16 +11,12 @@ use std::sync::Arc;
 pub trait LimitOrderPresenter: Send + Sync {
     async fn show_limit_orders(&self, telegram_id: i64) -> Result<()>;
     async fn start_create_order_flow(&self) -> Result<()>;
-    async fn handle_order_type_selection(&self, order_type: LimitOrderType) -> Result<()>;
-    async fn handle_token_address(
-        &self,
-        address_text: &str,
-        order_type: &LimitOrderType,
-    ) -> Result<()>;
+    async fn handle_order_type_selection(&self, order_type: OrderType) -> Result<()>;
+    async fn handle_token_address(&self, address_text: &str, order_type: &OrderType) -> Result<()>;
     async fn handle_price_and_amount(
         &self,
         price_amount_text: &str,
-        order_type: &LimitOrderType,
+        order_type: &OrderType,
         token_address: &str,
         token_symbol: &str,
         telegram_id: i64,
@@ -28,7 +24,7 @@ pub trait LimitOrderPresenter: Send + Sync {
     async fn handle_confirmation(
         &self,
         confirmation_text: &str,
-        order_type: &LimitOrderType,
+        order_type: &OrderType,
         token_address: &str,
         token_symbol: &str,
         price_in_sol: f64,
@@ -80,16 +76,12 @@ where
         self.view.prompt_for_order_type().await
     }
 
-    async fn handle_order_type_selection(&self, order_type: LimitOrderType) -> Result<()> {
+    async fn handle_order_type_selection(&self, order_type: OrderType) -> Result<()> {
         info!("Selected order type: {:?}", order_type);
         self.view.prompt_for_token_address(&order_type).await
     }
 
-    async fn handle_token_address(
-        &self,
-        address_text: &str,
-        order_type: &LimitOrderType,
-    ) -> Result<()> {
+    async fn handle_token_address(&self, address_text: &str, order_type: &OrderType) -> Result<()> {
         info!("Processing token address: {}", address_text);
 
         if self.interactor.validate_token_address(address_text).await? {
@@ -123,12 +115,15 @@ where
     async fn handle_price_and_amount(
         &self,
         price_amount_text: &str,
-        order_type: &LimitOrderType,
+        order_type: &OrderType,
         token_address: &str,
         token_symbol: &str,
         telegram_id: i64,
     ) -> Result<()> {
         info!("Processing price and amount: {}", price_amount_text);
+
+        // Check if this is a percentage-based order
+        let is_percentage = price_amount_text.contains('%');
 
         match self
             .interactor
@@ -142,15 +137,51 @@ where
             .await
         {
             Ok((price, amount, total_sol)) => {
+                // For sell orders, calculate what percentage of holdings this represents
+                let percentage_info = if *order_type == OrderType::Sell && !is_percentage {
+                    // Calculate percentage of balance if this isn't already a percentage-specified order
+                    match self
+                        .interactor
+                        .calculate_percentage_of_balance(
+                            token_address,
+                            token_symbol,
+                            amount,
+                            telegram_id,
+                        )
+                        .await
+                    {
+                        Ok(Some(percentage)) => {
+                            format!(" ({}% of your holdings)", percentage.round())
+                        }
+                        _ => "".to_string(),
+                    }
+                } else if is_percentage {
+                    // This was already specified as a percentage, extract that info
+                    let parts: Vec<&str> = price_amount_text.trim().split_whitespace().collect();
+                    if parts.len() >= 2 && parts[1].ends_with('%') {
+                        let percentage_str = parts[1].trim_end_matches('%');
+                        if let Ok(percentage) = percentage_str.parse::<f64>() {
+                            format!(" ({}% of your holdings)", percentage)
+                        } else {
+                            "".to_string()
+                        }
+                    } else {
+                        "".to_string()
+                    }
+                } else {
+                    "".to_string()
+                };
+
                 // Prompt for confirmation
                 self.view
-                    .prompt_for_confirmation(
+                    .prompt_for_confirmation_with_percentage(
                         order_type,
                         token_address,
                         token_symbol,
                         price,
                         amount,
                         total_sol,
+                        percentage_info,
                     )
                     .await?;
                 Ok(())
@@ -167,7 +198,7 @@ where
     async fn handle_confirmation(
         &self,
         confirmation_text: &str,
-        order_type: &LimitOrderType,
+        order_type: &OrderType,
         token_address: &str,
         token_symbol: &str,
         price_in_sol: f64,
@@ -193,6 +224,7 @@ where
                     token_symbol,
                     price_in_sol,
                     amount,
+                    total_sol,
                 )
                 .await?;
 
@@ -205,6 +237,7 @@ where
                             price_in_sol,
                             amount,
                             order_id,
+                            total_sol,
                         )
                         .await?;
                 } else {

@@ -1,4 +1,4 @@
-use crate::entity::{LimitOrder, LimitOrderStatus, LimitOrderType, Swap, Trade, Transaction, User};
+use crate::entity::{LimitOrder, LimitOrderStatus, OrderType, Swap, Trade, Transaction, User};
 use chrono::Utc;
 use log::info;
 use sqlx::{postgres::PgQueryResult, Error as SqlxError, PgPool, Row};
@@ -281,9 +281,9 @@ pub async fn create_limit_order(
     telegram_id: i64,
     token_address: &str,
     token_symbol: &str,
-    order_type: &LimitOrderType,
+    order_type: &OrderType,
     price_in_sol: f64,
-    amount: f64,
+    total_sol: f64,
     current_price_in_sol: Option<f64>,
 ) -> Result<i32, SqlxError> {
     // Get user ID from telegram_id
@@ -293,13 +293,20 @@ pub async fn create_limit_order(
     let status = LimitOrderStatus::Active.to_string();
     let now = Utc::now();
 
+    // Calculate token amount based on total_sol and price_in_sol
+    let amount = if price_in_sol > 0.0 {
+        total_sol / price_in_sol
+    } else {
+        0.0
+    };
+
     let row = sqlx::query(
         "INSERT INTO limit_orders (
             user_id, token_address, token_symbol, order_type,
-            price_in_sol, amount, current_price_in_sol,
-            created_at, updated_at, status
+            price_in_sol, amount, total_sol, current_price_in_sol,
+            created_at, updated_at, status, retry_count
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING id",
     )
     .bind(user.id)
@@ -308,10 +315,12 @@ pub async fn create_limit_order(
     .bind(order_type_str)
     .bind(price_in_sol)
     .bind(amount)
+    .bind(total_sol)
     .bind(current_price_in_sol)
     .bind(now)
     .bind(now)
     .bind(status)
+    .bind(0) // Initial retry_count = 0
     .fetch_one(pool)
     .await?;
 
@@ -320,7 +329,6 @@ pub async fn create_limit_order(
 
     Ok(id)
 }
-
 /// Get user's active limit orders
 pub async fn get_active_limit_orders(
     pool: &PgPool,
@@ -459,6 +467,58 @@ pub async fn get_limit_order_by_id(
 /// Cancel a limit order
 pub async fn cancel_limit_order(pool: &PgPool, order_id: i32) -> Result<PgQueryResult, SqlxError> {
     update_limit_order_status(pool, order_id, &LimitOrderStatus::Cancelled, None).await
+}
+
+/// Cancel all active limit orders for a user
+pub async fn cancel_all_limit_orders(pool: &PgPool, telegram_id: i64) -> Result<i32, SqlxError> {
+    // Get user ID from telegram_id
+    let user = get_user_by_telegram_id(pool, telegram_id).await?;
+    let now = Utc::now();
+    let cancelled_status = LimitOrderStatus::Cancelled.to_string();
+
+    // Update all active orders to cancelled
+    let result = sqlx::query(
+        "UPDATE limit_orders
+         SET status = $1, updated_at = $2
+         WHERE user_id = $3 AND status = $4",
+    )
+    .bind(cancelled_status)
+    .bind(now)
+    .bind(user.id)
+    .bind(LimitOrderStatus::Active.to_string())
+    .execute(pool)
+    .await?;
+
+    let count = result.rows_affected() as i32;
+    info!("Cancelled {} limit orders for user ID: {}", count, user.id);
+
+    Ok(count)
+}
+
+/// Update retry count for a limit order
+pub async fn update_limit_order_retry_count(
+    pool: &PgPool,
+    order_id: i32,
+    retry_count: i32,
+) -> Result<PgQueryResult, SqlxError> {
+    let now = Utc::now();
+
+    let result = sqlx::query(
+        "UPDATE limit_orders
+         SET retry_count = $1, updated_at = $2
+         WHERE id = $3",
+    )
+    .bind(retry_count)
+    .bind(now)
+    .bind(order_id)
+    .execute(pool)
+    .await?;
+
+    info!(
+        "Updated retry count for order ID {}: {}",
+        order_id, retry_count
+    );
+    Ok(result)
 }
 
 /// Get all active limit orders across all users

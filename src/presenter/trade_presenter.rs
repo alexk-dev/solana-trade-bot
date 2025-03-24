@@ -1,3 +1,4 @@
+use crate::entity::OrderType;
 use crate::interactor::trade_interactor::TradeInteractor;
 use crate::view::trade_view::TradeView;
 use anyhow::Result;
@@ -6,12 +7,12 @@ use std::sync::Arc;
 
 #[async_trait]
 pub trait TradePresenter: Send + Sync {
-    async fn start_trade_flow(&self, trade_type: &str) -> Result<()>;
-    async fn handle_token_address(&self, address_text: &str, trade_type: &str) -> Result<()>;
+    async fn start_trade_flow(&self, trade_type: &OrderType) -> Result<()>;
+    async fn handle_token_address(&self, address_text: &str, trade_type: &OrderType) -> Result<()>;
     async fn handle_confirmation(
         &self,
         confirmation_text: &str,
-        trade_type: &str,
+        trade_type: &OrderType,
         token_address: &str,
         token_symbol: &str,
         amount: f64,
@@ -42,11 +43,11 @@ where
     I: TradeInteractor + Send + Sync,
     V: TradeView + Send + Sync,
 {
-    async fn start_trade_flow(&self, trade_type: &str) -> Result<()> {
+    async fn start_trade_flow(&self, trade_type: &OrderType) -> Result<()> {
         self.view.prompt_for_token_address(trade_type).await
     }
 
-    async fn handle_token_address(&self, address_text: &str, trade_type: &str) -> Result<()> {
+    async fn handle_token_address(&self, address_text: &str, trade_type: &OrderType) -> Result<()> {
         if self.interactor.validate_token_address(address_text).await? {
             // Get token information to display to the user
             match self.interactor.get_token_info(address_text).await {
@@ -78,7 +79,7 @@ where
     async fn handle_confirmation(
         &self,
         confirmation_text: &str,
-        trade_type: &str,
+        trade_type: &OrderType,
         token_address: &str,
         token_symbol: &str,
         amount: f64,

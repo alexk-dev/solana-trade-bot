@@ -1,4 +1,4 @@
-use crate::entity::{BotError, Token};
+use crate::entity::{BotError, OrderType, Token};
 use crate::interactor::db;
 use crate::solana::jupiter::quote_service::QuoteService;
 use crate::solana::jupiter::swap_service::SwapService;
@@ -40,7 +40,7 @@ pub trait TradeInteractor: Send + Sync {
     async fn execute_trade(
         &self,
         telegram_id: i64,
-        trade_type: &str,
+        trade_type: &OrderType,
         token_address: &str,
         token_symbol: &str,
         amount: f64,
@@ -190,7 +190,7 @@ where
     async fn execute_trade(
         &self,
         telegram_id: i64,
-        trade_type: &str,
+        trade_type: &OrderType,
         token_address: &str,
         token_symbol: &str,
         amount: f64,
@@ -222,7 +222,7 @@ where
                 let total_sol = amount * price_in_sol;
 
                 // Execute the trade based on trade type
-                if trade_type == "BUY" {
+                if trade_type == &OrderType::Buy {
                     self.execute_buy_trade(
                         telegram_id,
                         &keypair,

@@ -55,11 +55,13 @@ CREATE TABLE IF NOT EXISTS limit_orders (
     order_type TEXT NOT NULL,
     price_in_sol DOUBLE PRECISION NOT NULL,
     amount DOUBLE PRECISION NOT NULL,
+    total_sol DOUBLE PRECISION NOT NULL,
     current_price_in_sol DOUBLE PRECISION,
     tx_signature TEXT,
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,
-    status TEXT NOT NULL
+    status TEXT NOT NULL,
+    retry_count INTEGER NOT NULL DEFAULT 0
     );
 
 -- Create index for faster queries

@@ -5,7 +5,7 @@ use teloxide::prelude::*;
 
 use super::{CommandHandler, MyDialogue};
 use crate::di::ServiceContainer;
-use crate::entity::{LimitOrderType, State};
+use crate::entity::{OrderType, State};
 use crate::interactor::limit_order_interactor::{LimitOrderInteractor, LimitOrderInteractorImpl};
 use crate::presenter::limit_order_presenter::{LimitOrderPresenter, LimitOrderPresenterImpl};
 use crate::view::limit_order_view::TelegramLimitOrderView;
@@ -56,7 +56,7 @@ impl CommandHandler for LimitOrdersCommand {
 pub async fn handle_order_type_selection(
     bot: Bot,
     msg: Message,
-    order_type: LimitOrderType,
+    order_type: OrderType,
     dialogue: MyDialogue,
     services: Arc<ServiceContainer>,
 ) -> Result<()> {

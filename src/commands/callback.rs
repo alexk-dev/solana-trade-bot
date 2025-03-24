@@ -101,7 +101,7 @@ pub async fn handle_callback(
         crate::commands::limit_order::handle_order_type_selection(
             bot,
             message.clone(),
-            crate::entity::LimitOrderType::Buy,
+            crate::entity::OrderType::Buy,
             dialogue,
             services,
         )
@@ -111,7 +111,7 @@ pub async fn handle_callback(
         crate::commands::limit_order::handle_order_type_selection(
             bot,
             message.clone(),
-            crate::entity::LimitOrderType::Sell,
+            crate::entity::OrderType::Sell,
             dialogue,
             services,
         )
@@ -130,6 +130,12 @@ pub async fn handle_callback(
         } else {
             bot.send_message(chat_id, "Invalid order ID").await?;
         }
+    } else if callback_data == "cancel_all_orders" {
+        // Handle cancel all orders request
+        handle_cancel_all_orders(&bot, message.clone(), telegram_id, services).await?;
+    } else if callback_data == "confirm_cancel_all" {
+        // Handle confirmation of cancelling all orders
+        handle_confirm_cancel_all(&bot, message.clone(), telegram_id, services).await?;
     } else {
         // Handle trading UI buttons
         bot.send_message(
@@ -460,6 +466,75 @@ async fn handle_cancel_order(
             .await?;
         }
     }
+
+    Ok(())
+}
+
+// Function to cancel all orders
+async fn handle_cancel_all_orders(
+    bot: &Bot,
+    message: Message,
+    telegram_id: i64,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
+    let chat_id = message.chat.id;
+    let db_pool = services.db_pool();
+
+    // First check if the user has any active orders
+    let orders = crate::interactor::db::get_active_limit_orders(&db_pool, telegram_id).await?;
+
+    if orders.is_empty() {
+        // No active orders, just inform the user
+        bot.send_message(chat_id, "You don't have any active orders to cancel.")
+            .await?;
+        return Ok(());
+    }
+
+    // Ask for confirmation
+    let confirm_keyboard = InlineKeyboardMarkup::new(vec![vec![
+        InlineKeyboardButton::callback("Yes, Cancel All Orders", "confirm_cancel_all"),
+        InlineKeyboardButton::callback("No, Keep My Orders", "limit_orders"),
+    ]]);
+
+    bot.send_message(
+        chat_id,
+        format!(
+            "Are you sure you want to cancel all {} active limit orders?",
+            orders.len()
+        ),
+    )
+    .reply_markup(confirm_keyboard)
+    .await?;
+
+    Ok(())
+}
+
+// Function to handle confirmation of cancelling all orders
+async fn handle_confirm_cancel_all(
+    bot: &Bot,
+    message: Message,
+    telegram_id: i64,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
+    let chat_id = message.chat.id;
+    let db_pool = services.db_pool();
+
+    // Cancel all active orders
+    let cancelled_count =
+        crate::interactor::db::cancel_all_limit_orders(&db_pool, telegram_id).await?;
+
+    // Notify the user
+    bot.send_message(
+        chat_id,
+        format!(
+            "✅ Successfully cancelled {} limit orders.",
+            cancelled_count
+        ),
+    )
+    .await?;
+
+    // Refresh the orders list
+    handle_limit_orders(bot, message, telegram_id, services).await?;
 
     Ok(())
 }
