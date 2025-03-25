@@ -1,11 +1,11 @@
 use crate::di::ServiceContainer;
-use crate::entity::{LimitOrder, LimitOrderStatus, OrderType};
+use crate::entity::{LimitOrder, LimitOrderStatus, OrderType, WatchlistItem};
 use crate::interactor::db;
 use crate::interactor::trade_interactor::{TradeInteractor, TradeInteractorImpl};
 use crate::solana::jupiter::price_service::PriceService;
 use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -45,8 +45,8 @@ impl LimitOrderService {
 
         // Spawn a new async task that runs independently
         tokio::spawn(async move {
-            // Create an interval ticker that triggers every 7 seconds
-            let mut interval = interval(Duration::from_secs(7));
+            // Create an interval ticker that triggers every 13 seconds
+            let mut interval = interval(Duration::from_secs(13));
             let mut last_run = Instant::now();
 
             loop {
@@ -56,8 +56,8 @@ impl LimitOrderService {
                         let elapsed = last_run.elapsed();
                         debug!("Running limit order check (last run: {:.2?} ago)", elapsed);
 
-                        if let Err(e) = Self::process_limit_orders(&services_clone, &bot_clone).await {
-                            error!("Error processing limit orders: {}", e);
+                        if let Err(e) = Self::process_limit_orders_and_watchlist(&services_clone, &bot_clone).await {
+                            error!("Error processing limit orders and watchlist: {}", e);
                         }
 
                         last_run = Instant::now();
@@ -83,91 +83,140 @@ impl LimitOrderService {
         }
     }
 
-    // Process all active limit orders
-    async fn process_limit_orders(services: &Arc<ServiceContainer>, bot: &Bot) -> Result<()> {
+    // Enhanced process function that handles both limit orders and watchlist
+    async fn process_limit_orders_and_watchlist(services: &Arc<ServiceContainer>, bot: &Bot) -> Result<()> {
         let db_pool = services.db_pool();
+
+        // Collect all the token addresses we need to check prices for
+        let mut all_tokens = HashMap::new();
+        let mut token_prices = HashMap::new();
 
         // 1. Get all active limit orders
         let active_orders = db::get_all_active_limit_orders(&db_pool).await?;
 
-        if active_orders.is_empty() {
-            debug!("No active limit orders found");
-            return Ok(());
+        if !active_orders.is_empty() {
+            info!("Processing {} active limit orders", active_orders.len());
+
+            // Extract unique token addresses from orders
+            for order in &active_orders {
+                all_tokens.insert(
+                    order.token_address.clone(),
+                    order.token_symbol.clone()
+                );
+            }
         }
 
-        info!("Processing {} active limit orders", active_orders.len());
+        // 2. Get all watchlist items from all users
+        let mut all_users = HashSet::new();
+        let mut watchlist_by_user = HashMap::new();
 
-        // 2. Extract unique token addresses
-        let mut token_addresses = HashMap::new();
-        for order in &active_orders {
-            token_addresses.insert(order.token_address.clone(), order.token_symbol.clone());
+        // First, get all user IDs with non-empty watchlists
+        let users = sqlx::query!("SELECT DISTINCT user_id FROM watchlist")
+            .fetch_all(&*db_pool)
+            .await?;
+
+        for user_row in users {
+            all_users.insert(user_row.user_id);
         }
 
-        info!(
-            "Found {} unique tokens in active orders",
-            token_addresses.len()
-        );
+        // Then get watchlist items for each user
+        for user_id in &all_users {
+            // Get user's telegram_id
+            let user = db::get_user_by_id(&db_pool, *user_id).await?;
+            let telegram_id = user.telegram_id;
 
-        // 3. Process each token
-        for (token_address, token_symbol) in token_addresses {
-            // 3a. Get current price for the token
+            // Get user's watchlist
+            let watchlist = db::get_user_watchlist(&db_pool, telegram_id).await?;
+
+            // Add tokens to the collection
+            for item in &watchlist {
+                all_tokens.insert(
+                    item.token_address.clone(),
+                    item.token_symbol.clone()
+                );
+            }
+
+            // Store watchlist for later updates
+            if !watchlist.is_empty() {
+                watchlist_by_user.insert(telegram_id, watchlist);
+            }
+        }
+
+        // 3. Process all token prices in a single pass
+        if !all_tokens.is_empty() {
+            info!("Getting prices for {} unique tokens", all_tokens.len());
+
             let price_service = services.price_service();
-            match price_service.get_token_price(&token_address).await {
-                Ok(price_info) => {
-                    let current_price = price_info.price_in_sol;
-                    debug!("Current price for {}: {} SOL", token_symbol, current_price);
 
-                    // 3b. Update current price for all orders with this token
-                    let orders_for_token: Vec<&LimitOrder> = active_orders
-                        .iter()
-                        .filter(|o| o.token_address == token_address)
-                        .collect();
+            // Get price for each token (no duplicates)
+            for (token_address, token_symbol) in all_tokens {
+                match price_service.get_token_price(&token_address).await {
+                    Ok(price_info) => {
+                        let price_in_sol = price_info.price_in_sol;
+                        debug!("Got price for {}: {} SOL", token_symbol, price_in_sol);
 
-                    for order in &orders_for_token {
-                        if let Err(e) =
-                            db::update_limit_order_current_price(&db_pool, order.id, current_price)
-                                .await
-                        {
-                            error!("Failed to update price for order #{}: {}", order.id, e);
-                        }
-                    }
+                        // Store price for later use
+                        token_prices.insert(token_address.clone(), price_in_sol);
 
-                    // 3c. Check for executable orders
-                    for order in orders_for_token {
-                        // Determine if the order should be executed based on price conditions
-                        let should_execute = match order.order_type.as_str() {
-                            "BUY" => current_price <= order.price_in_sol,
-                            "SELL" => current_price >= order.price_in_sol,
-                            _ => false,
-                        };
-
-                        if should_execute {
-                            info!(
-                                "Executing {} order #{} for {} {} at {} SOL (current price: {})",
-                                order.order_type,
+                        // 4. Update limit orders with this token
+                        for order in active_orders.iter().filter(|o| o.token_address == token_address) {
+                            if let Err(e) = db::update_limit_order_current_price(
+                                &db_pool,
                                 order.id,
-                                order.amount,
-                                order.token_symbol,
-                                order.price_in_sol,
-                                current_price
-                            );
+                                price_in_sol
+                            ).await {
+                                error!("Failed to update limit order #{} price: {}", order.id, e);
+                            }
 
-                            // Execute the order
-                            if let Err(e) =
-                                Self::execute_order(services, bot, order, current_price).await
-                            {
-                                error!("Failed to execute order #{}: {}", order.id, e);
+                            // Check if we need to execute the order
+                            let should_execute = match order.order_type.as_str() {
+                                "BUY" => price_in_sol <= order.price_in_sol,
+                                "SELL" => price_in_sol >= order.price_in_sol,
+                                _ => false,
+                            };
+
+                            if should_execute {
+                                info!(
+                                    "Executing {} order #{} for {} {} at {} SOL (current price: {})",
+                                    order.order_type,
+                                    order.id,
+                                    order.amount,
+                                    order.token_symbol,
+                                    order.price_in_sol,
+                                    price_in_sol
+                                );
+
+                                if let Err(e) = Self::execute_order(services, bot, order, price_in_sol).await {
+                                    error!("Failed to execute order #{}: {}", order.id, e);
+                                }
+                            }
+                        }
+
+                        // 5. Update watchlist items with this token
+                        for (telegram_id, watchlist) in &watchlist_by_user {
+                            for item in watchlist.iter().filter(|w| w.token_address == token_address) {
+                                if let Err(e) = db::update_watchlist_price(
+                                    &db_pool,
+                                    *telegram_id,
+                                    &token_address,
+                                    price_in_sol
+                                ).await {
+                                    error!("Failed to update watchlist price for user {}, token {}: {}", 
+                                        telegram_id, token_symbol, e);
+                                }
                             }
                         }
                     }
+                    Err(e) => {
+                        error!("Failed to get price for token {}: {}", token_symbol, e);
+                    }
                 }
-                Err(e) => {
-                    error!("Failed to get price for token {}: {}", token_symbol, e);
-                }
-            }
 
-            // Add a small delay between tokens to avoid rate limiting
-            sleep(Duration::from_millis(200)).await;
+                // Add a small delay between API calls to avoid rate limiting
+                sleep(Duration::from_millis(100)).await;
+            }
+        } else {
+            debug!("No tokens to process");
         }
 
         Ok(())
@@ -227,7 +276,7 @@ impl LimitOrderService {
                 &LimitOrderStatus::Filled,
                 result.signature.as_deref(),
             )
-            .await?;
+                .await?;
 
             // Notify user about successful execution
             bot.send_message(
