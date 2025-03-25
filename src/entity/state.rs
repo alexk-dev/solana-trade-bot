@@ -52,4 +52,5 @@ pub enum State {
         total_sol: f64,
     },
     AwaitingSlippageInput,
+    AwaitingWatchlistTokenAddress,
 }

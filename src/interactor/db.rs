@@ -1,4 +1,6 @@
-use crate::entity::{LimitOrder, LimitOrderStatus, OrderType, Swap, Trade, Transaction, User};
+use crate::entity::{
+    LimitOrder, LimitOrderStatus, OrderType, Swap, Trade, Transaction, User, WatchlistItem,
+};
 use chrono::Utc;
 use log::info;
 use sqlx::{postgres::PgQueryResult, Error as SqlxError, PgPool, Row};
@@ -599,4 +601,162 @@ pub async fn update_user_slippage(
     );
 
     Ok(result)
+}
+
+// Get user's watchlist items
+pub async fn get_user_watchlist(
+    pool: &PgPool,
+    telegram_id: i64,
+) -> Result<Vec<WatchlistItem>, SqlxError> {
+    // Get user ID from telegram_id
+    let user = get_user_by_telegram_id(pool, telegram_id).await?;
+
+    let items = sqlx::query_as::<_, WatchlistItem>(
+        "SELECT * FROM watchlist WHERE user_id = $1 ORDER BY token_symbol ASC",
+    )
+    .bind(user.id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(items)
+}
+
+// Add token to watchlist
+pub async fn add_to_watchlist(
+    pool: &PgPool,
+    telegram_id: i64,
+    token_address: &str,
+    token_symbol: &str,
+    price_in_sol: f64,
+) -> Result<i32, SqlxError> {
+    // Get user ID from telegram_id
+    let user = get_user_by_telegram_id(pool, telegram_id).await?;
+
+    let now = Utc::now();
+
+    // Try to insert, if token already exists update it
+    let row = sqlx::query(
+        "INSERT INTO watchlist
+         (user_id, token_address, token_symbol, last_price_in_sol, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (user_id, token_address)
+         DO UPDATE SET
+            token_symbol = EXCLUDED.token_symbol,
+            last_price_in_sol = EXCLUDED.last_price_in_sol,
+            updated_at = EXCLUDED.updated_at
+         RETURNING id",
+    )
+    .bind(user.id)
+    .bind(token_address)
+    .bind(token_symbol)
+    .bind(price_in_sol)
+    .bind(now)
+    .bind(now)
+    .fetch_one(pool)
+    .await?;
+
+    let id: i32 = row.try_get("id")?;
+
+    info!(
+        "Added/Updated token {} to watchlist for user ID: {}",
+        token_symbol, user.id
+    );
+
+    Ok(id)
+}
+
+// Remove token from watchlist
+pub async fn remove_from_watchlist(
+    pool: &PgPool,
+    telegram_id: i64,
+    token_address: &str,
+) -> Result<bool, SqlxError> {
+    // Get user ID from telegram_id
+    let user = get_user_by_telegram_id(pool, telegram_id).await?;
+
+    let result = sqlx::query("DELETE FROM watchlist WHERE user_id = $1 AND token_address = $2")
+        .bind(user.id)
+        .bind(token_address)
+        .execute(pool)
+        .await?;
+
+    let removed = result.rows_affected() > 0;
+
+    if removed {
+        info!(
+            "Removed token {} from watchlist for user ID: {}",
+            token_address, user.id
+        );
+    }
+
+    Ok(removed)
+}
+
+// Check if token is in watchlist
+pub async fn is_in_watchlist(
+    pool: &PgPool,
+    telegram_id: i64,
+    token_address: &str,
+) -> Result<bool, SqlxError> {
+    // Get user ID from telegram_id
+    let user = get_user_by_telegram_id(pool, telegram_id).await?;
+
+    let row = sqlx::query(
+        "SELECT COUNT(*) as count FROM watchlist WHERE user_id = $1 AND token_address = $2",
+    )
+    .bind(user.id)
+    .bind(token_address)
+    .fetch_one(pool)
+    .await?;
+
+    let count: i64 = row.try_get("count")?;
+
+    Ok(count > 0)
+}
+
+// Update token price in watchlist
+pub async fn update_watchlist_price(
+    pool: &PgPool,
+    telegram_id: i64,
+    token_address: &str,
+    price_in_sol: f64,
+) -> Result<PgQueryResult, SqlxError> {
+    // Get user ID from telegram_id
+    let user = get_user_by_telegram_id(pool, telegram_id).await?;
+
+    let now = Utc::now();
+
+    let result = sqlx::query(
+        "UPDATE watchlist
+         SET last_price_in_sol = $1, updated_at = $2
+         WHERE user_id = $3 AND token_address = $4",
+    )
+    .bind(price_in_sol)
+    .bind(now)
+    .bind(user.id)
+    .bind(token_address)
+    .execute(pool)
+    .await?;
+
+    Ok(result)
+}
+
+// Get specific watchlist item
+pub async fn get_watchlist_item(
+    pool: &PgPool,
+    telegram_id: i64,
+    token_address: &str,
+) -> Result<Option<WatchlistItem>, SqlxError> {
+    // Get user ID from telegram_id
+    let user = get_user_by_telegram_id(pool, telegram_id).await?;
+
+    let item = sqlx::query_as::<_, WatchlistItem>(
+        "SELECT * FROM watchlist WHERE user_id = $1 AND token_address = $2",
+    )
+    .bind(user.id)
+    .bind(token_address)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(item)
 }

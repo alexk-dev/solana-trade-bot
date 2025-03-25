@@ -14,6 +14,7 @@ use crate::interactor::wallet_interactor::WalletInteractorImpl;
 use crate::presenter::balance_presenter::{BalancePresenter, BalancePresenterImpl};
 use crate::presenter::limit_order_presenter::LimitOrderPresenter;
 use crate::presenter::settings_presenter::SettingsPresenter;
+use crate::presenter::watchlist_presenter::WatchlistPresenter;
 use crate::view::balance_view::TelegramBalanceView;
 
 // Main callback handler function
@@ -145,6 +146,27 @@ pub async fn handle_callback(
     } else if callback_data.starts_with("slippage_") {
         // Handle preset slippage values
         handle_preset_slippage(&bot, &callback_data, message.clone(), telegram_id, services)
+            .await?;
+    } else if callback_data == "watchlist" {
+        // Handle watchlist menu
+        handle_watchlist_menu(&bot, message.clone(), telegram_id, services).await?;
+    } else if callback_data == "watchlist_add" {
+        // Handle add to watchlist
+        handle_watchlist_add(&bot, message.clone(), dialogue, telegram_id, services).await?;
+    } else if callback_data == "watchlist_refresh" {
+        // Handle watchlist refresh
+        handle_watchlist_refresh(&bot, message.clone(), telegram_id, services).await?;
+    } else if callback_data.starts_with("watchlist_view_") {
+        // Handle view token details
+        let token_address = callback_data.strip_prefix("watchlist_view_").unwrap_or("");
+        handle_watchlist_view_token(&bot, token_address, message.clone(), telegram_id, services)
+            .await?;
+    } else if callback_data.starts_with("watchlist_remove_") {
+        // Handle remove from watchlist
+        let token_address = callback_data
+            .strip_prefix("watchlist_remove_")
+            .unwrap_or("");
+        handle_watchlist_remove_token(&bot, token_address, message.clone(), telegram_id, services)
             .await?;
     } else {
         // Handle trading UI buttons
@@ -630,6 +652,203 @@ async fn handle_preset_slippage(
         crate::presenter::settings_presenter::SettingsPresenterImpl::new(interactor, view);
 
     presenter.set_preset_slippage(telegram_id, slippage).await?;
+
+    Ok(())
+}
+
+// Function to show watchlist menu
+async fn handle_watchlist_menu(
+    bot: &Bot,
+    message: Message,
+    telegram_id: i64,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
+    let chat_id = message.chat.id;
+
+    // Create presenter for watchlist
+    let db_pool = services.db_pool();
+    let price_service = services.price_service();
+    let token_repository = services.token_repository();
+
+    let interactor = Arc::new(
+        crate::interactor::watchlist_interactor::WatchlistInteractorImpl::new(
+            db_pool,
+            price_service.clone(),
+            token_repository,
+        ),
+    );
+    let view = Arc::new(crate::view::watchlist_view::TelegramWatchlistView::new(
+        bot.clone(),
+        chat_id,
+    ));
+    let presenter = crate::presenter::watchlist_presenter::WatchlistPresenterImpl::new(
+        interactor,
+        view,
+        price_service,
+    );
+
+    // Show watchlist
+    presenter.show_watchlist(telegram_id).await?;
+
+    Ok(())
+}
+
+// Function to handle adding to watchlist
+async fn handle_watchlist_add(
+    bot: &Bot,
+    message: Message,
+    dialogue: MyDialogue,
+    telegram_id: i64,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
+    let chat_id = message.chat.id;
+
+    // Update dialogue state to expect token address
+    dialogue
+        .update(State::AwaitingWatchlistTokenAddress)
+        .await?;
+
+    // Create presenter
+    let db_pool = services.db_pool();
+    let price_service = services.price_service();
+    let token_repository = services.token_repository();
+
+    let interactor = Arc::new(
+        crate::interactor::watchlist_interactor::WatchlistInteractorImpl::new(
+            db_pool,
+            price_service.clone(),
+            token_repository,
+        ),
+    );
+    let view = Arc::new(crate::view::watchlist_view::TelegramWatchlistView::new(
+        bot.clone(),
+        chat_id,
+    ));
+    let presenter = crate::presenter::watchlist_presenter::WatchlistPresenterImpl::new(
+        interactor,
+        view,
+        price_service,
+    );
+
+    // Prompt for token address
+    presenter.prompt_for_token_address().await?;
+
+    Ok(())
+}
+
+// Function to refresh watchlist prices
+async fn handle_watchlist_refresh(
+    bot: &Bot,
+    message: Message,
+    telegram_id: i64,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
+    let chat_id = message.chat.id;
+
+    // Create presenter
+    let db_pool = services.db_pool();
+    let price_service = services.price_service();
+    let token_repository = services.token_repository();
+
+    let interactor = Arc::new(
+        crate::interactor::watchlist_interactor::WatchlistInteractorImpl::new(
+            db_pool,
+            price_service.clone(),
+            token_repository,
+        ),
+    );
+    let view = Arc::new(crate::view::watchlist_view::TelegramWatchlistView::new(
+        bot.clone(),
+        chat_id,
+    ));
+    let presenter = crate::presenter::watchlist_presenter::WatchlistPresenterImpl::new(
+        interactor,
+        view,
+        price_service,
+    );
+
+    // Refresh watchlist
+    presenter.refresh_watchlist(telegram_id).await?;
+
+    Ok(())
+}
+
+// Function to view token details
+async fn handle_watchlist_view_token(
+    bot: &Bot,
+    token_address: &str,
+    message: Message,
+    telegram_id: i64,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
+    let chat_id = message.chat.id;
+
+    // Create presenter
+    let db_pool = services.db_pool();
+    let price_service = services.price_service();
+    let token_repository = services.token_repository();
+
+    let interactor = Arc::new(
+        crate::interactor::watchlist_interactor::WatchlistInteractorImpl::new(
+            db_pool,
+            price_service.clone(),
+            token_repository,
+        ),
+    );
+    let view = Arc::new(crate::view::watchlist_view::TelegramWatchlistView::new(
+        bot.clone(),
+        chat_id,
+    ));
+    let presenter = crate::presenter::watchlist_presenter::WatchlistPresenterImpl::new(
+        interactor,
+        view,
+        price_service,
+    );
+
+    // Show token details
+    presenter
+        .show_token_detail(telegram_id, token_address)
+        .await?;
+
+    Ok(())
+}
+
+// Function to remove token from watchlist
+async fn handle_watchlist_remove_token(
+    bot: &Bot,
+    token_address: &str,
+    message: Message,
+    telegram_id: i64,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
+    let chat_id = message.chat.id;
+
+    // Create presenter
+    let db_pool = services.db_pool();
+    let price_service = services.price_service();
+    let token_repository = services.token_repository();
+
+    let interactor = Arc::new(
+        crate::interactor::watchlist_interactor::WatchlistInteractorImpl::new(
+            db_pool,
+            price_service.clone(),
+            token_repository,
+        ),
+    );
+    let view = Arc::new(crate::view::watchlist_view::TelegramWatchlistView::new(
+        bot.clone(),
+        chat_id,
+    ));
+    let presenter = crate::presenter::watchlist_presenter::WatchlistPresenterImpl::new(
+        interactor,
+        view,
+        price_service,
+    );
+
+    // Remove token from watchlist
+    presenter
+        .remove_from_watchlist(telegram_id, token_address)
+        .await?;
 
     Ok(())
 }

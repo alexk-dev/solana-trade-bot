@@ -9,6 +9,7 @@ mod token_price;
 mod trade;
 mod transaction;
 mod user;
+mod watchlist;
 
 // Re-export models from jupiter that should be considered entities
 pub use bot_error::BotError;
@@ -22,3 +23,4 @@ pub use token_price::TokenPrice;
 pub use trade::Trade;
 pub use transaction::Transaction;
 pub use user::User;
+pub use watchlist::WatchlistItem;

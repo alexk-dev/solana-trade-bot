@@ -21,6 +21,7 @@ pub mod start;
 pub mod trade;
 pub mod ui;
 pub mod wallet;
+pub(crate) mod watchlist;
 
 type MyDialogue = Dialogue<State, InMemStorage<State>>;
 

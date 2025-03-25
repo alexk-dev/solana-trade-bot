@@ -119,6 +119,7 @@ impl Router for TelegramRouter {
         let services_for_dialog10 = self.services.clone();
         let services_for_dialog11 = self.services.clone();
         let services_for_dialog12 = self.services.clone();
+        let services_for_dialog13 = self.services.clone();
 
         let message_handler = Update::filter_message().branch(command_handler).branch(
             dptree::entry()
@@ -281,6 +282,17 @@ impl Router for TelegramRouter {
                         async move {
                             commands::settings::handle_slippage_input(bot, msg, dialogue, services)
                                 .await
+                        }
+                    },
+                ))
+                .branch(case![State::AwaitingWatchlistTokenAddress].endpoint(
+                    move |bot: Bot, msg: Message, dialogue: MyDialogue| {
+                        let services = services_for_dialog13.clone();
+                        async move {
+                            commands::watchlist::handle_watchlist_token_address(
+                                bot, msg, dialogue, services,
+                            )
+                            .await
                         }
                     },
                 )),

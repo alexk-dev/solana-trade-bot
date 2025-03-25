@@ -68,3 +68,18 @@ CREATE TABLE IF NOT EXISTS limit_orders (
 -- Create index for faster queries
 CREATE INDEX IF NOT EXISTS idx_limit_orders_user_id ON limit_orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_limit_orders_status ON limit_orders(status);
+
+CREATE TABLE IF NOT EXISTS watchlist (
+                                         id SERIAL PRIMARY KEY,
+                                         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_address TEXT NOT NULL,
+    token_symbol TEXT NOT NULL,
+    last_price_in_sol DOUBLE PRECISION DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Ensure each user can have a token in their watchlist only once
+    UNIQUE(user_id, token_address)
+    );
+
+-- Add index for faster lookups by user_id
+CREATE INDEX IF NOT EXISTS idx_watchlist_user_id ON watchlist(user_id);

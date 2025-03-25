@@ -7,6 +7,7 @@ pub mod send_presenter;
 pub mod settings_presenter;
 pub mod trade_presenter;
 pub mod wallet_presenter;
+pub mod watchlist_presenter;
 
 // Base presenter trait
 #[async_trait]
