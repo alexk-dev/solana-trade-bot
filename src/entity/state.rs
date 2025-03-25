@@ -78,4 +78,20 @@ pub enum State {
         total_sol: f64,
         total_usdc: f64,
     },
+    AwaitingSellTokenSelection,
+    AwaitingSellAmount {
+        token_address: String,
+        token_symbol: String,
+        balance: f64,
+        price_in_sol: f64,
+        price_in_usdc: f64,
+    },
+    AwaitingSellConfirmation {
+        token_address: String,
+        token_symbol: String,
+        amount: f64,
+        price_in_sol: f64,
+        total_sol: f64,
+        total_usdc: f64,
+    },
 }

@@ -5,7 +5,9 @@ use teloxide::{
     dispatching::UpdateHandler, prelude::*,
 };
 
-use crate::commands::{self, callback::handle_callback, withdraw, BotCommands, CommandHandler};
+use crate::commands::{
+    self, callback::handle_callback, trade, withdraw, BotCommands, CommandHandler,
+};
 use crate::di::ServiceContainer;
 use crate::entity::State;
 
@@ -120,6 +122,9 @@ impl Router for TelegramRouter {
         let services_for_dialog11 = self.services.clone();
         let services_for_dialog12 = self.services.clone();
         let services_for_dialog13 = self.services.clone();
+        let services_for_dialog14 = self.services.clone();
+        let services_for_dialog15 = self.services.clone();
+        let services_for_dialog16 = self.services.clone();
 
         let message_handler = Update::filter_message().branch(command_handler).branch(
             dptree::entry()
@@ -322,7 +327,46 @@ impl Router for TelegramRouter {
                             .await
                         }
                     },
-                )),
+                ))
+                .branch(
+                    case![State::AwaitingSellAmount {
+                        token_address,
+                        token_symbol,
+                        balance,
+                        price_in_sol,
+                        price_in_usdc
+                    }]
+                    .endpoint(
+                        move |bot: Bot, msg: Message, state: State, dialogue: MyDialogue| {
+                            let services = services_for_dialog14.clone();
+                            async move {
+                                trade::receive_sell_amount(bot, msg, state, dialogue, services)
+                                    .await
+                            }
+                        },
+                    ),
+                )
+                .branch(
+                    case![State::AwaitingSellConfirmation {
+                        token_address,
+                        token_symbol,
+                        amount,
+                        price_in_sol,
+                        total_sol,
+                        total_usdc
+                    }]
+                    .endpoint(
+                        move |bot: Bot, msg: Message, state: State, dialogue: MyDialogue| {
+                            let services = services_for_dialog15.clone();
+                            async move {
+                                trade::receive_sell_confirmation(
+                                    bot, msg, state, dialogue, services,
+                                )
+                                .await
+                            }
+                        },
+                    ),
+                ),
         );
 
         // Add callback query handler for our buttons

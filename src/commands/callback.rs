@@ -85,9 +85,20 @@ pub async fn handle_callback(
         trade::BuyCommand::execute(bot, message.clone(), telegram_id, Some(dialogue), services)
             .await?;
     } else if callback_data == "sell" {
-        // Handle direct sell command
-        trade::SellCommand::execute(bot, message.clone(), telegram_id, Some(dialogue), services)
-            .await?;
+        // Handle sell action - show token selection
+        handle_sell_start(&bot, message.clone(), telegram_id, dialogue, services).await?;
+    } else if callback_data.starts_with("sell_token_") {
+        // Handle token selection for sell
+        let token_address = callback_data.strip_prefix("sell_token_").unwrap_or("");
+        handle_sell_token_selection(
+            &bot,
+            token_address,
+            message.clone(),
+            telegram_id,
+            dialogue,
+            services,
+        )
+        .await?;
     } else if callback_data == "limit_orders" {
         // Display limit orders
         handle_limit_orders(&bot, message.clone(), telegram_id, services).await?;
@@ -986,6 +997,176 @@ async fn handle_withdraw_token_selection(
                             ),
                         )
                         .parse_mode(teloxide::types::ParseMode::Html)
+                        .await?;
+                    }
+                    Err(e) => {
+                        bot.send_message(chat_id, format!("Error getting token price: {}", e))
+                            .await?;
+                    }
+                }
+            } else {
+                bot.send_message(
+                    chat_id,
+                    format!(
+                        "Token with address {} not found in your wallet",
+                        token_address
+                    ),
+                )
+                .await?;
+            }
+        }
+        Err(e) => {
+            bot.send_message(chat_id, format!("Error retrieving tokens: {}", e))
+                .await?;
+        }
+    }
+
+    Ok(())
+}
+
+// Function to start the sell flow with token selection
+async fn handle_sell_start(
+    bot: &Bot,
+    message: Message,
+    telegram_id: i64,
+    dialogue: MyDialogue,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
+    let chat_id = message.chat.id;
+
+    // Update dialogue state
+    dialogue.update(State::AwaitingSellTokenSelection).await?;
+
+    // Get user's tokens
+    let db_pool = services.db_pool();
+    let solana_client = services.solana_client();
+
+    match crate::commands::trade::get_user_tokens(
+        telegram_id,
+        db_pool.clone(),
+        solana_client.clone(),
+    )
+    .await
+    {
+        Ok(tokens) => {
+            if tokens.is_empty() {
+                bot.send_message(
+                    chat_id,
+                    "You don't have any tokens to sell. Please deposit some tokens to your wallet first."
+                ).await?;
+            } else {
+                // Create keyboard buttons for each token
+                let mut keyboard_buttons = Vec::new();
+
+                for token in tokens {
+                    if token.symbol != "SOL" {
+                        // Exclude SOL from the sell options
+                        let token_text = format!("{}: {:.6}", token.symbol, token.amount);
+                        keyboard_buttons.push(vec![InlineKeyboardButton::callback(
+                            token_text,
+                            format!("sell_token_{}", token.mint_address),
+                        )]);
+                    }
+                }
+
+                // Add cancel button
+                keyboard_buttons.push(vec![InlineKeyboardButton::callback("← Cancel", "menu")]);
+
+                let keyboard = InlineKeyboardMarkup::new(keyboard_buttons);
+
+                bot.send_message(chat_id, "Select a token to sell:")
+                    .reply_markup(keyboard)
+                    .await?;
+            }
+        }
+        Err(e) => {
+            if e.to_string().contains("Wallet not found") {
+                bot.send_message(
+                    chat_id,
+                    "You don't have a wallet yet. Use /create_wallet to create a new wallet.",
+                )
+                .await?;
+            } else {
+                bot.send_message(chat_id, format!("Error retrieving tokens: {}", e))
+                    .await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// Function to handle token selection for sell
+async fn handle_sell_token_selection(
+    bot: &Bot,
+    token_address: &str,
+    message: Message,
+    telegram_id: i64,
+    dialogue: MyDialogue,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
+    let chat_id = message.chat.id;
+
+    // Get token info and current price
+    let db_pool = services.db_pool();
+    let solana_client = services.solana_client();
+    let price_service = services.price_service();
+
+    // Get user's tokens
+    match crate::commands::trade::get_user_tokens(
+        telegram_id,
+        db_pool.clone(),
+        solana_client.clone(),
+    )
+    .await
+    {
+        Ok(tokens) => {
+            // Find the selected token
+            if let Some(token) = tokens.iter().find(|t| t.mint_address == token_address) {
+                // Get token price
+                match price_service.get_token_price(token_address).await {
+                    Ok(price_info) => {
+                        let price_in_sol = price_info.price_in_sol;
+                        let price_in_usdc = price_info.price_in_usdc;
+
+                        // Calculate total value
+                        let total_value_sol = token.amount * price_in_sol;
+                        let total_value_usdc = token.amount * price_in_usdc;
+
+                        // Update dialogue state
+                        dialogue
+                            .update(State::AwaitingSellAmount {
+                                token_address: token_address.to_string(),
+                                token_symbol: token.symbol.clone(),
+                                balance: token.amount,
+                                price_in_sol,
+                                price_in_usdc,
+                            })
+                            .await?;
+
+                        // Display token details and prompt for amount
+                        bot.send_message(
+                            chat_id,
+                            format!(
+                                "<b>{} Token Details</b>\n\n\
+                                • Symbol: <b>{}</b>\n\
+                                • Your Balance: <b>{:.6}</b>\n\
+                                • Current Price: <b>{:.6} SOL</b> (${:.2})\n\
+                                • Total Value: <b>{:.6} SOL</b> (${:.2})\n\n\
+                                How many tokens do you want to sell?\n\
+                                • Enter a specific amount (e.g. <code>10.5</code>)\n\
+                                • Enter a percentage (e.g. <code>50%</code>)\n\
+                                • Or type <code>All</code> to sell your entire balance",
+                                token.symbol,
+                                token.symbol,
+                                token.amount,
+                                price_in_sol,
+                                price_in_usdc,
+                                total_value_sol,
+                                total_value_usdc
+                            ),
+                        )
+                        .parse_mode(ParseMode::Html)
                         .await?;
                     }
                     Err(e) => {
