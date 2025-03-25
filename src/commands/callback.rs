@@ -7,9 +7,11 @@ use teloxide::{
 };
 
 use crate::commands::{help, price, trade, ui, wallet, CommandHandler, MyDialogue};
+use crate::db;
 use crate::di::ServiceContainer;
 use crate::entity::State;
 use crate::interactor::balance_interactor::{BalanceInteractor, BalanceInteractorImpl};
+use crate::interactor::trade_interactor::{TradeInteractor, TradeInteractorImpl};
 use crate::interactor::wallet_interactor::WalletInteractorImpl;
 use crate::interactor::withdraw_interactor::WithdrawInteractor;
 use crate::presenter::balance_presenter::{BalancePresenter, BalancePresenterImpl};
@@ -81,9 +83,23 @@ pub async fn handle_callback(
             help::HelpCommand::execute(bot, msg, telegram_id, Some(dialogue), services).await?;
         }
     } else if callback_data == "buy" {
-        // Handle direct buy command
-        trade::BuyCommand::execute(bot, message.clone(), telegram_id, Some(dialogue), services)
-            .await?;
+        // Handle buy action - show token selection
+        handle_buy_start(&bot, message.clone(), telegram_id, dialogue, services).await?;
+    } else if callback_data == "buy_manual_address" {
+        // Handle manual address entry for buy
+        handle_buy_manual_address(&bot, message.clone(), dialogue).await?;
+    } else if callback_data.starts_with("buy_token_") {
+        // Handle token selection for buy
+        let token_address = callback_data.strip_prefix("buy_token_").unwrap_or("");
+        handle_buy_token_selection(
+            &bot,
+            token_address,
+            message.clone(),
+            telegram_id,
+            dialogue,
+            services,
+        )
+        .await?;
     } else if callback_data == "sell" {
         // Handle sell action - show token selection
         handle_sell_start(&bot, message.clone(), telegram_id, dialogue, services).await?;
@@ -1187,6 +1203,175 @@ async fn handle_sell_token_selection(
         }
         Err(e) => {
             bot.send_message(chat_id, format!("Error retrieving tokens: {}", e))
+                .await?;
+        }
+    }
+
+    Ok(())
+}
+
+// Function to start the buy flow with token selection
+async fn handle_buy_start(
+    bot: &Bot,
+    message: Message,
+    telegram_id: i64,
+    dialogue: MyDialogue,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
+    let chat_id = message.chat.id;
+
+    // Update dialogue state
+    dialogue.update(State::AwaitingBuyTokenSelection).await?;
+
+    // Create set to track token addresses to avoid duplicates
+    let mut token_addresses = std::collections::HashSet::new();
+    let mut keyboard_buttons = Vec::new();
+
+    // Step 1: Get user's existing tokens
+    let db_pool = services.db_pool();
+    let solana_client = services.solana_client();
+
+    if let Ok(user_tokens) =
+        crate::commands::trade::get_user_tokens(telegram_id, db_pool.clone(), solana_client.clone())
+            .await
+    {
+        for token in user_tokens {
+            if token.symbol != "SOL" && token_addresses.insert(token.mint_address.clone()) {
+                let token_text = format!("{} (owned)", token.symbol);
+                keyboard_buttons.push(vec![InlineKeyboardButton::callback(
+                    token_text,
+                    format!("buy_token_{}", token.mint_address),
+                )]);
+            }
+        }
+    }
+
+    // Step 2: Get user's watchlist tokens
+    if let Ok(watchlist) = db::get_user_watchlist(&db_pool, telegram_id).await {
+        for item in watchlist {
+            if token_addresses.insert(item.token_address.clone()) {
+                let token_text = format!("{} (watchlist)", item.token_symbol);
+                keyboard_buttons.push(vec![InlineKeyboardButton::callback(
+                    token_text,
+                    format!("buy_token_{}", item.token_address),
+                )]);
+            }
+        }
+    }
+
+    // Step 3: Add USDT and USDC from constants if not already added
+    let usdt_address = crate::solana::tokens::constants::USDT_MINT;
+    let usdc_address = crate::solana::tokens::constants::USDC_MINT;
+
+    if token_addresses.insert(usdt_address.to_string()) {
+        keyboard_buttons.push(vec![InlineKeyboardButton::callback(
+            "USDT",
+            format!("buy_token_{}", usdt_address),
+        )]);
+    }
+
+    if token_addresses.insert(usdc_address.to_string()) {
+        keyboard_buttons.push(vec![InlineKeyboardButton::callback(
+            "USDC",
+            format!("buy_token_{}", usdc_address),
+        )]);
+    }
+
+    // Step 4: Add button for manual address entry
+    keyboard_buttons.push(vec![InlineKeyboardButton::callback(
+        "Enter Token Address Manually",
+        "buy_manual_address",
+    )]);
+
+    // Add cancel button
+    keyboard_buttons.push(vec![InlineKeyboardButton::callback("← Cancel", "menu")]);
+
+    let keyboard = InlineKeyboardMarkup::new(keyboard_buttons);
+
+    bot.send_message(
+        chat_id,
+        "Select a token to buy or enter a contract address manually:",
+    )
+    .reply_markup(keyboard)
+    .await?;
+
+    Ok(())
+}
+
+// Function to handle manual address entry
+async fn handle_buy_manual_address(
+    bot: &Bot,
+    message: Message,
+    dialogue: MyDialogue,
+) -> Result<()> {
+    let chat_id = message.chat.id;
+
+    // Update dialogue state
+    dialogue.update(State::AwaitingBuyManualAddress).await?;
+
+    // Prompt for address
+    bot.send_message(chat_id, "Please enter the token contract address:")
+        .await?;
+
+    Ok(())
+}
+
+// Function to handle token selection
+async fn handle_buy_token_selection(
+    bot: &Bot,
+    token_address: &str,
+    message: Message,
+    telegram_id: i64,
+    dialogue: MyDialogue,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
+    let chat_id = message.chat.id;
+
+    // Create services for token info
+    let db_pool = services.db_pool();
+    let solana_client = services.solana_client();
+    let price_service = services.price_service();
+    let token_repository = services.token_repository();
+    let swap_service = services.swap_service();
+
+    let interactor = Arc::new(TradeInteractorImpl::new(
+        db_pool.clone(),
+        solana_client.clone(),
+        price_service.clone(),
+        token_repository.clone(),
+        swap_service.clone(),
+    ));
+
+    // Get token information
+    match interactor.get_token_info(token_address).await {
+        Ok((token_symbol, price_in_sol, price_in_usdc)) => {
+            // Update dialogue state
+            dialogue
+                .update(State::AwaitingBuyAmount {
+                    token_address: token_address.to_string(),
+                    token_symbol: token_symbol.clone(),
+                    price_in_sol,
+                    price_in_usdc,
+                })
+                .await?;
+
+            // Display token info with pricing
+            bot.send_message(
+                chat_id,
+                format!(
+                    "<b>{} Token Details</b>\n\n\
+                    • Symbol: <b>{}</b>\n\
+                    • Address: <code>{}</code>\n\
+                    • Current Price: <b>{:.6} SOL</b> (${:.2})\n\n\
+                    How many tokens do you want to buy?",
+                    token_symbol, token_symbol, token_address, price_in_sol, price_in_usdc
+                ),
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
+        }
+        Err(e) => {
+            bot.send_message(chat_id, format!("Error getting token info: {}", e))
                 .await?;
         }
     }

@@ -1,15 +1,15 @@
 use super::{CommandHandler, MyDialogue};
-use crate::{db, solana, TokenBalance};
 use crate::di::ServiceContainer;
 use crate::entity::{BotError, OrderType, State};
 use crate::interactor::trade_interactor::{TradeInteractor, TradeInteractorImpl};
 use crate::presenter::trade_presenter::{TradePresenter, TradePresenterImpl};
 use crate::view::trade_view::TelegramTradeView;
+use crate::{db, solana, TokenBalance};
 use anyhow::Result;
 use log::info;
-use std::sync::Arc;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use sqlx::PgPool;
+use std::sync::Arc;
 use teloxide::prelude::*;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
 
@@ -36,29 +36,79 @@ impl CommandHandler for BuyCommand {
 
         info!("Buy command initiated by user: {}", telegram_id);
 
-        dialogue
-            .update(State::AwaitingTokenAddress {
-                trade_type: OrderType::Buy,
-            })
-            .await?;
+        // Update dialogue state to token selection rather than directly asking for address
+        dialogue.update(State::AwaitingBuyTokenSelection).await?;
 
+        // Create set to track token addresses to avoid duplicates
+        let mut token_addresses = std::collections::HashSet::new();
+        let mut keyboard_buttons = Vec::new();
+
+        // Step 1: Get user's existing tokens
         let db_pool = services.db_pool();
         let solana_client = services.solana_client();
-        let price_service = services.price_service();
-        let token_repository = services.token_repository();
-        let swap_service = services.swap_service();
 
-        let interactor = Arc::new(TradeInteractorImpl::new(
-            db_pool,
-            solana_client,
-            price_service,
-            token_repository,
-            swap_service,
-        ));
-        let view = Arc::new(TelegramTradeView::new(bot, chat_id));
-        let presenter = TradePresenterImpl::new(interactor, view);
+        if let Ok(user_tokens) =
+            get_user_tokens(telegram_id, db_pool.clone(), solana_client.clone()).await
+        {
+            for token in user_tokens {
+                if token.symbol != "SOL" && token_addresses.insert(token.mint_address.clone()) {
+                    let token_text = format!("{} (owned)", token.symbol);
+                    keyboard_buttons.push(vec![InlineKeyboardButton::callback(
+                        token_text,
+                        format!("buy_token_{}", token.mint_address),
+                    )]);
+                }
+            }
+        }
 
-        presenter.start_trade_flow(&OrderType::Buy).await?;
+        // Step 2: Get user's watchlist tokens
+        if let Ok(watchlist) = db::get_user_watchlist(&db_pool, telegram_id).await {
+            for item in watchlist {
+                if token_addresses.insert(item.token_address.clone()) {
+                    let token_text = format!("{} (watchlist)", item.token_symbol);
+                    keyboard_buttons.push(vec![InlineKeyboardButton::callback(
+                        token_text,
+                        format!("buy_token_{}", item.token_address),
+                    )]);
+                }
+            }
+        }
+
+        // Step 3: Add USDT and USDC from constants if not already added
+        let usdt_address = crate::solana::tokens::constants::USDT_MINT;
+        let usdc_address = crate::solana::tokens::constants::USDC_MINT;
+
+        if token_addresses.insert(usdt_address.to_string()) {
+            keyboard_buttons.push(vec![InlineKeyboardButton::callback(
+                "USDT",
+                format!("buy_token_{}", usdt_address),
+            )]);
+        }
+
+        if token_addresses.insert(usdc_address.to_string()) {
+            keyboard_buttons.push(vec![InlineKeyboardButton::callback(
+                "USDC",
+                format!("buy_token_{}", usdc_address),
+            )]);
+        }
+
+        // Step 4: Add button for manual address entry
+        keyboard_buttons.push(vec![InlineKeyboardButton::callback(
+            "Enter Token Address Manually",
+            "buy_manual_address",
+        )]);
+
+        // Add cancel button
+        keyboard_buttons.push(vec![InlineKeyboardButton::callback("← Cancel", "menu")]);
+
+        let keyboard = InlineKeyboardMarkup::new(keyboard_buttons);
+
+        bot.send_message(
+            chat_id,
+            "Select a token to buy or enter a contract address manually:",
+        )
+        .reply_markup(keyboard)
+        .await?;
 
         Ok(())
     }
@@ -396,162 +446,93 @@ pub async fn receive_sell_confirmation(
     Ok(())
 }
 
-// Handler for the token address state
-pub async fn receive_token_address(
+// Handler for manual token address entry
+pub async fn receive_buy_manual_address(
     bot: Bot,
     msg: Message,
-    state: State,
     dialogue: MyDialogue,
     services: Arc<ServiceContainer>,
 ) -> Result<()> {
-    if let State::AwaitingTokenAddress { trade_type } = state {
-        if let Some(address_text) = msg.text() {
-            let chat_id = msg.chat.id;
-            let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
-            let db_pool = services.db_pool();
-            let solana_client = services.solana_client();
-            let price_service = services.price_service();
-            let token_repository = services.token_repository();
-            let swap_service = services.swap_service();
+    if let Some(address_text) = msg.text() {
+        let chat_id = msg.chat.id;
+        let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
 
-            let interactor = Arc::new(TradeInteractorImpl::new(
-                db_pool.clone(),
-                solana_client.clone(),
-                price_service.clone(),
-                token_repository.clone(),
-                swap_service.clone(),
-            ));
-            let view = Arc::new(TelegramTradeView::new(bot.clone(), chat_id));
-            let presenter = TradePresenterImpl::new(interactor.clone(), view);
+        // Validate the token address
+        let db_pool = services.db_pool();
+        let solana_client = services.solana_client();
+        let price_service = services.price_service();
+        let token_repository = services.token_repository();
+        let swap_service = services.swap_service();
 
-            // Validate token address
-            if let Ok(is_valid) = interactor.validate_token_address(address_text).await {
-                if is_valid {
-                    // Get token info to show to the user
-                    match interactor.get_token_info(address_text).await {
-                        Ok((token_symbol, price_in_sol, price_in_usdc)) => {
-                            // For sell actions, get the user's token balance
-                            if trade_type == OrderType::Sell {
-                                // Get user wallet address
-                                match db::get_user_by_telegram_id(&db_pool, telegram_id).await {
-                                    Ok(user) => {
-                                        if let Some(user_address) = user.solana_address {
-                                            // Get user's token balance
-                                            match interactor
-                                                .get_token_balance(address_text, &user_address)
-                                                .await
-                                            {
-                                                Ok(token_balance) => {
-                                                    // Update dialogue state
-                                                    dialogue
-                                                        .update(State::AwaitingTradeAmount {
-                                                            trade_type: trade_type,
-                                                            token_address: address_text.to_string(),
-                                                            token_symbol: token_symbol.clone(),
-                                                            price_in_sol,
-                                                            price_in_usdc,
-                                                        })
-                                                        .await?;
+        let interactor = Arc::new(TradeInteractorImpl::new(
+            db_pool.clone(),
+            solana_client.clone(),
+            price_service.clone(),
+            token_repository.clone(),
+            swap_service.clone(),
+        ));
 
-                                                    // Display token info with balance
-                                                    bot.send_message(
-                                                        chat_id,
-                                                        format!(
-                                                            "Token: {} ({})\nCurrent price: {:.6} SOL (${:.2})\nYour balance: {} {}\n\nHow many tokens do you want to sell?\nType 'All' to sell your entire balance.",
-                                                            token_symbol, address_text, price_in_sol, price_in_usdc, token_balance, token_symbol
-                                                        ),
-                                                    )
-                                                        .await?;
-                                                }
-                                                Err(e) => {
-                                                    bot.send_message(
-                                                        chat_id,
-                                                        format!(
-                                                            "Error getting token balance: {}",
-                                                            e
-                                                        ),
-                                                    )
-                                                    .await?;
-                                                }
-                                            }
-                                        } else {
-                                            bot.send_message(
-                                                chat_id,
-                                                "You don't have a wallet yet. Use /create_wallet to create one.",
-                                            )
-                                                .await?;
-                                        }
-                                    }
-                                    Err(e) => {
-                                        bot.send_message(
-                                            chat_id,
-                                            format!("Error accessing user information: {}", e),
-                                        )
-                                        .await?;
-                                    }
-                                }
-                            } else {
-                                // For BUY actions, proceed normally
-                                // Update dialogue state
-                                dialogue
-                                    .update(State::AwaitingTradeAmount {
-                                        trade_type: trade_type.clone(),
-                                        token_address: address_text.to_string(),
-                                        token_symbol: token_symbol.clone(),
-                                        price_in_sol,
-                                        price_in_usdc,
-                                    })
-                                    .await?;
+        if let Ok(is_valid) = interactor.validate_token_address(address_text).await {
+            if is_valid {
+                // Get token info to display to the user
+                match interactor.get_token_info(address_text).await {
+                    Ok((token_symbol, price_in_sol, price_in_usdc)) => {
+                        // Update dialogue state
+                        dialogue
+                            .update(State::AwaitingBuyAmount {
+                                token_address: address_text.to_string(),
+                                token_symbol: token_symbol.clone(),
+                                price_in_sol,
+                                price_in_usdc,
+                            })
+                            .await?;
 
-                                // Display token info
-                                bot.send_message(
-                                    chat_id,
-                                    format!(
-                                        "Token: {} ({})\nCurrent price: {:.6} SOL (${:.2})\n\nHow many tokens do you want to {}?",
-                                        token_symbol, address_text, price_in_sol, price_in_usdc, trade_type.to_string().to_lowercase()
-                                    ),
-                                )
-                                    .await?;
-                            }
-                        }
-                        Err(e) => {
-                            bot.send_message(chat_id, format!("Error getting token info: {}", e))
-                                .await?;
-                        }
+                        // Display token info
+                        bot.send_message(
+                            chat_id,
+                            format!(
+                                "Token: {} ({})\nCurrent price: {:.6} SOL (${:.2})\n\nHow many tokens do you want to buy?",
+                                token_symbol, address_text, price_in_sol, price_in_usdc
+                            ),
+                        )
+                            .await?;
                     }
-                } else {
-                    bot.send_message(
-                        chat_id,
-                        "Invalid token address. Please enter a valid Solana token contract address:",
-                    )
-                        .await?;
+                    Err(e) => {
+                        bot.send_message(chat_id, format!("Error getting token info: {}", e))
+                            .await?;
+                    }
                 }
             } else {
-                bot.send_message(chat_id, "Error validating token address. Please try again:")
-                    .await?;
+                bot.send_message(
+                    chat_id,
+                    "Invalid token address. Please enter a valid Solana token contract address:",
+                )
+                .await?;
             }
         } else {
-            bot.send_message(
-                msg.chat.id,
-                "Please enter the token contract address as text:",
-            )
-            .await?;
+            bot.send_message(chat_id, "Error validating token address. Please try again:")
+                .await?;
         }
+    } else {
+        bot.send_message(
+            msg.chat.id,
+            "Please enter the token contract address as text:",
+        )
+        .await?;
     }
 
     Ok(())
 }
 
-// Handler for the trade amount state
-pub async fn receive_trade_amount(
+// Handler for buy amount
+pub async fn receive_buy_amount(
     bot: Bot,
     msg: Message,
     state: State,
     dialogue: MyDialogue,
     services: Arc<ServiceContainer>,
 ) -> Result<()> {
-    if let State::AwaitingTradeAmount {
-        trade_type,
+    if let State::AwaitingBuyAmount {
         token_address,
         token_symbol,
         price_in_sol,
@@ -560,114 +541,52 @@ pub async fn receive_trade_amount(
     {
         if let Some(amount_text) = msg.text() {
             let chat_id = msg.chat.id;
-            let telegram_id = msg.from().map_or(0, |user| user.id.0 as i64);
-            let db_pool = services.db_pool();
-            let solana_client = services.solana_client();
-            let price_service = services.price_service();
-            let token_repository = services.token_repository();
-            let swap_service = services.swap_service();
 
-            let interactor = Arc::new(TradeInteractorImpl::new(
-                db_pool.clone(),
-                solana_client,
-                price_service,
-                token_repository,
-                swap_service,
-            ));
+            // Validate amount
+            match amount_text.parse::<f64>() {
+                Ok(amount) if amount > 0.0 => {
+                    // Calculate total
+                    let total_sol = amount * price_in_sol;
+                    let total_usdc = amount * price_in_usdc;
 
-            // Handle amount validation differently for buy vs sell
-            if trade_type == OrderType::Sell {
-                // Get user's address for balance check
-                match db::get_user_by_telegram_id(&db_pool, telegram_id).await {
-                    Ok(user) => {
-                        if let Some(user_address) = user.solana_address {
-                            // Validate sell amount (includes handling "All" keyword)
-                            match interactor
-                                .validate_sell_amount(amount_text, &token_address, &user_address)
-                                .await
-                            {
-                                Ok(amount) => {
-                                    // Calculate total
-                                    let total_sol = amount * price_in_sol;
-
-                                    // Update dialogue state
-                                    dialogue
-                                        .update(State::AwaitingTradeConfirmation {
-                                            trade_type: trade_type.clone(),
-                                            token_address: token_address.clone(),
-                                            token_symbol: token_symbol.clone(),
-                                            amount,
-                                            price_in_sol,
-                                            total_sol,
-                                        })
-                                        .await?;
-
-                                    // Prompt for confirmation
-                                    bot.send_message(
-                                        chat_id,
-                                        format!(
-                                            "Please confirm your trade:\n\n{} {} {}\nPrice per token: {:.6} SOL\nTotal: {:.6} SOL\n\nDo you want to proceed? (yes/no)",
-                                            trade_type, amount, token_symbol, price_in_sol, total_sol
-                                        ),
-                                    )
-                                        .await?;
-                                }
-                                Err(e) => {
-                                    bot.send_message(chat_id, e.to_string()).await?;
-                                }
-                            }
-                        } else {
-                            bot.send_message(
-                                chat_id,
-                                "You don't have a wallet yet. Use /create_wallet to create one.",
-                            )
-                            .await?;
-                        }
-                    }
-                    Err(e) => {
-                        bot.send_message(
-                            chat_id,
-                            format!("Error accessing user information: {}", e),
-                        )
+                    // Update dialogue state
+                    dialogue
+                        .update(State::AwaitingBuyConfirmation {
+                            token_address: token_address.clone(),
+                            token_symbol: token_symbol.clone(),
+                            amount,
+                            price_in_sol,
+                            total_sol,
+                            total_usdc,
+                        })
                         .await?;
-                    }
+
+                    // Prompt for confirmation
+                    bot.send_message(
+                        chat_id,
+                        format!(
+                            "<b>Confirm Buy Order</b>\n\n\
+                            • Buy: <b>{:.6} {}</b>\n\
+                            • Price: <b>{:.6} SOL</b> per token\n\
+                            • Total: <b>{:.6} SOL</b> (${:.2})\n\n\
+                            Do you want to proceed? (yes/no)",
+                            amount, token_symbol, price_in_sol, total_sol, total_usdc
+                        ),
+                    )
+                    .parse_mode(ParseMode::Html)
+                    .await?;
                 }
-            } else {
-                // For BUY operations - standard validation
-                match interactor.validate_buy_amount(amount_text).await {
-                    Ok(amount) => {
-                        // Calculate total
-                        let total_sol = amount * price_in_sol;
-
-                        // Update dialogue state
-                        dialogue
-                            .update(State::AwaitingTradeConfirmation {
-                                trade_type: trade_type.clone(),
-                                token_address: token_address.clone(),
-                                token_symbol: token_symbol.clone(),
-                                amount,
-                                price_in_sol,
-                                total_sol,
-                            })
-                            .await?;
-
-                        // Prompt for confirmation
-                        bot.send_message(
-                            chat_id,
-                            format!(
-                                "Please confirm your trade:\n\n{} {} {}\nPrice per token: {:.6} SOL\nTotal: {:.6} SOL\n\nDo you want to proceed? (yes/no)",
-                                trade_type, amount, token_symbol, price_in_sol, total_sol
-                            ),
-                        )
-                            .await?;
-                    }
-                    Err(e) => {
-                        bot.send_message(chat_id, e.to_string()).await?;
-                    }
+                Ok(_) => {
+                    bot.send_message(chat_id, "Amount must be greater than zero")
+                        .await?;
+                }
+                Err(_) => {
+                    bot.send_message(chat_id, "Invalid amount format. Please enter a number.")
+                        .await?;
                 }
             }
         } else {
-            bot.send_message(msg.chat.id, "Please enter an amount as a number:")
+            bot.send_message(msg.chat.id, "Please enter the amount as text:")
                 .await?;
         }
     }
@@ -675,21 +594,21 @@ pub async fn receive_trade_amount(
     Ok(())
 }
 
-// Handler for the trade confirmation state
-pub async fn receive_trade_confirmation(
+// Handler for buy confirmation
+pub async fn receive_buy_confirmation(
     bot: Bot,
     msg: Message,
     state: State,
     dialogue: MyDialogue,
     services: Arc<ServiceContainer>,
 ) -> Result<()> {
-    if let State::AwaitingTradeConfirmation {
-        trade_type,
+    if let State::AwaitingBuyConfirmation {
         token_address,
         token_symbol,
         amount,
         price_in_sol,
         total_sol,
+        total_usdc,
     } = state
     {
         if let Some(text) = msg.text() {
@@ -705,7 +624,7 @@ pub async fn receive_trade_confirmation(
                 let processing_msg = bot
                     .send_message(
                         chat_id,
-                        format!("Processing your {} order... Please wait.", trade_type),
+                        format!("Processing your BUY order... Please wait."),
                     )
                     .await?;
 
@@ -717,7 +636,7 @@ pub async fn receive_trade_confirmation(
                 let swap_service = services.swap_service();
 
                 let interactor = Arc::new(TradeInteractorImpl::new(
-                    db_pool,
+                    db_pool.clone(),
                     solana_client,
                     price_service,
                     token_repository,
@@ -727,7 +646,7 @@ pub async fn receive_trade_confirmation(
                 let result = interactor
                     .execute_trade(
                         telegram_id,
-                        &trade_type,
+                        &OrderType::Buy,
                         &token_address,
                         &token_symbol,
                         amount,
@@ -738,8 +657,12 @@ pub async fn receive_trade_confirmation(
                 if result.success {
                     // Trade was successful
                     let success_text = format!(
-                        "✅ {} order completed successfully.\nAmount: {} {}\nPrice: {:.6} SOL per token\nTotal: {:.6} SOL\nTx Signature: {}\nCheck transaction: https://explorer.solana.com/tx/{}",
-                        trade_type,
+                        "✅ BUY order completed successfully.\n\
+                        Amount: {} {}\n\
+                        Price: {:.6} SOL per token\n\
+                        Total: {:.6} SOL\n\
+                        Tx Signature: {}\n\
+                        Check transaction: https://explorer.solana.com/tx/{}",
                         amount,
                         token_symbol,
                         price_in_sol,
@@ -753,8 +676,7 @@ pub async fn receive_trade_confirmation(
                 } else {
                     // Trade failed
                     let error_text = format!(
-                        "❌ Error executing {} order for {} {}:\n{}",
-                        trade_type,
+                        "❌ Error executing BUY order for {} {}:\n{}",
                         amount,
                         token_symbol,
                         result

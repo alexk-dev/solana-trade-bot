@@ -13,24 +13,6 @@ pub enum State {
         amount: f64,
         token: String,
     },
-    AwaitingTokenAddress {
-        trade_type: OrderType,
-    },
-    AwaitingTradeAmount {
-        trade_type: OrderType,
-        token_address: String,
-        token_symbol: String,
-        price_in_sol: f64,
-        price_in_usdc: f64,
-    },
-    AwaitingTradeConfirmation {
-        trade_type: OrderType,
-        token_address: String,
-        token_symbol: String,
-        amount: f64,
-        price_in_sol: f64,
-        total_sol: f64,
-    },
     AwaitingPriceTokenAddress,
     AwaitingLimitOrderType,
     AwaitingLimitOrderTokenAddress {
@@ -87,6 +69,22 @@ pub enum State {
         price_in_usdc: f64,
     },
     AwaitingSellConfirmation {
+        token_address: String,
+        token_symbol: String,
+        amount: f64,
+        price_in_sol: f64,
+        total_sol: f64,
+        total_usdc: f64,
+    },
+    AwaitingBuyTokenSelection,
+    AwaitingBuyManualAddress,
+    AwaitingBuyAmount {
+        token_address: String,
+        token_symbol: String,
+        price_in_sol: f64,
+        price_in_usdc: f64,
+    },
+    AwaitingBuyConfirmation {
         token_address: String,
         token_symbol: String,
         amount: f64,

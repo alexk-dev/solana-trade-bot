@@ -125,6 +125,8 @@ impl Router for TelegramRouter {
         let services_for_dialog14 = self.services.clone();
         let services_for_dialog15 = self.services.clone();
         let services_for_dialog16 = self.services.clone();
+        let services_for_dialog17 = self.services.clone();
+        let services_for_dialog18 = self.services.clone();
 
         let message_handler = Update::filter_message().branch(command_handler).branch(
             dptree::entry()
@@ -184,58 +186,6 @@ impl Router for TelegramRouter {
                             let services = services_for_dialog3.clone();
                             async move {
                                 withdraw::receive_withdraw_confirmation(
-                                    bot, msg, state, dialogue, services,
-                                )
-                                .await
-                            }
-                        },
-                    ),
-                )
-                .branch(case![State::AwaitingTokenAddress { trade_type }].endpoint(
-                    move |bot: Bot, msg: Message, state: State, dialogue: MyDialogue| {
-                        let services = services_for_dialog5.clone();
-                        async move {
-                            commands::trade::receive_token_address(
-                                bot, msg, state, dialogue, services,
-                            )
-                            .await
-                        }
-                    },
-                ))
-                .branch(
-                    case![State::AwaitingTradeAmount {
-                        trade_type,
-                        token_address,
-                        token_symbol,
-                        price_in_sol,
-                        price_in_usdc
-                    }]
-                    .endpoint(
-                        move |bot: Bot, msg: Message, state: State, dialogue: MyDialogue| {
-                            let services = services_for_dialog6.clone();
-                            async move {
-                                commands::trade::receive_trade_amount(
-                                    bot, msg, state, dialogue, services,
-                                )
-                                .await
-                            }
-                        },
-                    ),
-                )
-                .branch(
-                    case![State::AwaitingTradeConfirmation {
-                        trade_type,
-                        token_address,
-                        token_symbol,
-                        amount,
-                        price_in_sol,
-                        total_sol
-                    }]
-                    .endpoint(
-                        move |bot: Bot, msg: Message, state: State, dialogue: MyDialogue| {
-                            let services = services_for_dialog7.clone();
-                            async move {
-                                commands::trade::receive_trade_confirmation(
                                     bot, msg, state, dialogue, services,
                                 )
                                 .await
@@ -363,6 +313,49 @@ impl Router for TelegramRouter {
                                     bot, msg, state, dialogue, services,
                                 )
                                 .await
+                            }
+                        },
+                    ),
+                )
+                .branch(case![State::AwaitingBuyManualAddress].endpoint(
+                    move |bot: Bot, msg: Message, dialogue: MyDialogue| {
+                        let services = services_for_dialog16.clone();
+                        async move {
+                            trade::receive_buy_manual_address(bot, msg, dialogue, services).await
+                        }
+                    },
+                ))
+                .branch(
+                    case![State::AwaitingBuyAmount {
+                        token_address,
+                        token_symbol,
+                        price_in_sol,
+                        price_in_usdc
+                    }]
+                    .endpoint(
+                        move |bot: Bot, msg: Message, state: State, dialogue: MyDialogue| {
+                            let services = services_for_dialog17.clone();
+                            async move {
+                                trade::receive_buy_amount(bot, msg, state, dialogue, services).await
+                            }
+                        },
+                    ),
+                )
+                .branch(
+                    case![State::AwaitingBuyConfirmation {
+                        token_address,
+                        token_symbol,
+                        amount,
+                        price_in_sol,
+                        total_sol,
+                        total_usdc
+                    }]
+                    .endpoint(
+                        move |bot: Bot, msg: Message, state: State, dialogue: MyDialogue| {
+                            let services = services_for_dialog18.clone();
+                            async move {
+                                trade::receive_buy_confirmation(bot, msg, state, dialogue, services)
+                                    .await
                             }
                         },
                     ),
