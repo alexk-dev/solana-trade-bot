@@ -84,7 +84,10 @@ impl LimitOrderService {
     }
 
     // Enhanced process function that handles both limit orders and watchlist
-    async fn process_limit_orders_and_watchlist(services: &Arc<ServiceContainer>, bot: &Bot) -> Result<()> {
+    async fn process_limit_orders_and_watchlist(
+        services: &Arc<ServiceContainer>,
+        bot: &Bot,
+    ) -> Result<()> {
         let db_pool = services.db_pool();
 
         // Collect all the token addresses we need to check prices for
@@ -99,10 +102,7 @@ impl LimitOrderService {
 
             // Extract unique token addresses from orders
             for order in &active_orders {
-                all_tokens.insert(
-                    order.token_address.clone(),
-                    order.token_symbol.clone()
-                );
+                all_tokens.insert(order.token_address.clone(), order.token_symbol.clone());
             }
         }
 
@@ -130,10 +130,7 @@ impl LimitOrderService {
 
             // Add tokens to the collection
             for item in &watchlist {
-                all_tokens.insert(
-                    item.token_address.clone(),
-                    item.token_symbol.clone()
-                );
+                all_tokens.insert(item.token_address.clone(), item.token_symbol.clone());
             }
 
             // Store watchlist for later updates
@@ -159,12 +156,17 @@ impl LimitOrderService {
                         token_prices.insert(token_address.clone(), price_in_sol);
 
                         // 4. Update limit orders with this token
-                        for order in active_orders.iter().filter(|o| o.token_address == token_address) {
+                        for order in active_orders
+                            .iter()
+                            .filter(|o| o.token_address == token_address)
+                        {
                             if let Err(e) = db::update_limit_order_current_price(
                                 &db_pool,
                                 order.id,
-                                price_in_sol
-                            ).await {
+                                price_in_sol,
+                            )
+                            .await
+                            {
                                 error!("Failed to update limit order #{} price: {}", order.id, e);
                             }
 
@@ -186,7 +188,9 @@ impl LimitOrderService {
                                     price_in_sol
                                 );
 
-                                if let Err(e) = Self::execute_order(services, bot, order, price_in_sol).await {
+                                if let Err(e) =
+                                    Self::execute_order(services, bot, order, price_in_sol).await
+                                {
                                     error!("Failed to execute order #{}: {}", order.id, e);
                                 }
                             }
@@ -194,13 +198,18 @@ impl LimitOrderService {
 
                         // 5. Update watchlist items with this token
                         for (telegram_id, watchlist) in &watchlist_by_user {
-                            for item in watchlist.iter().filter(|w| w.token_address == token_address) {
+                            for item in watchlist
+                                .iter()
+                                .filter(|w| w.token_address == token_address)
+                            {
                                 if let Err(e) = db::update_watchlist_price(
                                     &db_pool,
                                     *telegram_id,
                                     &token_address,
-                                    price_in_sol
-                                ).await {
+                                    price_in_sol,
+                                )
+                                .await
+                                {
                                     error!("Failed to update watchlist price for user {}, token {}: {}", 
                                         telegram_id, token_symbol, e);
                                 }
@@ -276,7 +285,7 @@ impl LimitOrderService {
                 &LimitOrderStatus::Filled,
                 result.signature.as_deref(),
             )
-                .await?;
+            .await?;
 
             // Notify user about successful execution
             bot.send_message(
