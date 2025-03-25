@@ -5,7 +5,7 @@ use teloxide::{
     dispatching::UpdateHandler, prelude::*,
 };
 
-use crate::commands::{self, callback::handle_callback, BotCommands, CommandHandler};
+use crate::commands::{self, callback::handle_callback, withdraw, BotCommands, CommandHandler};
 use crate::di::ServiceContainer;
 use crate::entity::State;
 
@@ -123,35 +123,62 @@ impl Router for TelegramRouter {
 
         let message_handler = Update::filter_message().branch(command_handler).branch(
             dptree::entry()
-                .branch(case![State::AwaitingRecipientAddress].endpoint(
-                    move |bot: Bot, msg: Message, dialogue: MyDialogue| {
-                        let services = services_for_dialog1.clone();
-                        async move {
-                            commands::send::receive_recipient_address(bot, msg, dialogue, services)
-                                .await
-                        }
-                    },
-                ))
-                .branch(case![State::AwaitingAmount { recipient }].endpoint(
-                    move |bot: Bot, msg: Message, state: State, dialogue: MyDialogue| {
-                        let services = services_for_dialog2.clone();
-                        async move {
-                            commands::send::receive_amount(bot, msg, state, dialogue, services)
-                                .await
-                        }
-                    },
-                ))
                 .branch(
-                    case![State::AwaitingConfirmation {
+                    case![State::AwaitingWithdrawRecipientAddress {
+                        token_address,
+                        token_symbol,
+                        amount,
+                        price_in_sol,
+                        price_in_usdc
+                    }]
+                    .endpoint(
+                        move |bot: Bot, msg: Message, state: State, dialogue: MyDialogue| {
+                            let services = services_for_dialog1.clone();
+                            async move {
+                                withdraw::receive_recipient_address(
+                                    bot, msg, state, dialogue, services,
+                                )
+                                .await
+                            }
+                        },
+                    ),
+                )
+                .branch(
+                    case![State::AwaitingWithdrawAmount {
+                        token_address,
+                        token_symbol,
+                        recipient,
+                        balance,
+                        price_in_sol,
+                        price_in_usdc
+                    }]
+                    .endpoint(
+                        move |bot: Bot, msg: Message, state: State, dialogue: MyDialogue| {
+                            let services = services_for_dialog2.clone();
+                            async move {
+                                withdraw::receive_withdraw_amount(
+                                    bot, msg, state, dialogue, services,
+                                )
+                                .await
+                            }
+                        },
+                    ),
+                )
+                .branch(
+                    case![State::AwaitingWithdrawConfirmation {
+                        token_address,
+                        token_symbol,
                         recipient,
                         amount,
-                        token
+                        price_in_sol,
+                        total_sol,
+                        total_usdc
                     }]
                     .endpoint(
                         move |bot: Bot, msg: Message, state: State, dialogue: MyDialogue| {
                             let services = services_for_dialog3.clone();
                             async move {
-                                commands::send::receive_confirmation(
+                                withdraw::receive_withdraw_confirmation(
                                     bot, msg, state, dialogue, services,
                                 )
                                 .await

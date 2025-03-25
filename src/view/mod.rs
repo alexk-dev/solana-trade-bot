@@ -8,6 +8,7 @@ pub mod settings_view;
 pub mod trade_view;
 pub mod wallet_view;
 pub(crate) mod watchlist_view;
+pub(crate) mod withdraw_view;
 
 // Base view trait
 #[async_trait]

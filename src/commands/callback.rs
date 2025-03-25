@@ -6,15 +6,17 @@ use teloxide::{
     types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode},
 };
 
-use crate::commands::{help, price, send, trade, ui, wallet, CommandHandler, MyDialogue};
+use crate::commands::{help, price, trade, ui, wallet, CommandHandler, MyDialogue};
 use crate::di::ServiceContainer;
 use crate::entity::State;
 use crate::interactor::balance_interactor::{BalanceInteractor, BalanceInteractorImpl};
 use crate::interactor::wallet_interactor::WalletInteractorImpl;
+use crate::interactor::withdraw_interactor::WithdrawInteractor;
 use crate::presenter::balance_presenter::{BalancePresenter, BalancePresenterImpl};
 use crate::presenter::limit_order_presenter::LimitOrderPresenter;
 use crate::presenter::settings_presenter::SettingsPresenter;
 use crate::presenter::watchlist_presenter::WatchlistPresenter;
+use crate::presenter::withdraw_presenter::WithdrawPresenter;
 use crate::view::balance_view::TelegramBalanceView;
 
 // Main callback handler function
@@ -66,11 +68,6 @@ pub async fn handle_callback(
         if let msg = message.clone() {
             wallet::AddressCommand::execute(bot, msg, telegram_id, Some(dialogue), services)
                 .await?;
-        }
-    } else if callback_data == "send" {
-        // Handle send action
-        if let msg = message.clone() {
-            send::SendCommand::execute(bot, msg, telegram_id, Some(dialogue), services).await?;
         }
     } else if callback_data == "price" {
         // Handle price action - show token selection
@@ -168,6 +165,21 @@ pub async fn handle_callback(
             .unwrap_or("");
         handle_watchlist_remove_token(&bot, token_address, message.clone(), telegram_id, services)
             .await?;
+    } else if callback_data == "withdraw" {
+        // Handle withdraw action - show token selection
+        handle_withdraw_start(&bot, message.clone(), telegram_id, dialogue, services).await?;
+    } else if callback_data.starts_with("withdraw_token_") {
+        // Handle token selection for withdraw
+        let token_address = callback_data.strip_prefix("withdraw_token_").unwrap_or("");
+        handle_withdraw_token_selection(
+            &bot,
+            token_address,
+            message.clone(),
+            telegram_id,
+            dialogue,
+            services,
+        )
+        .await?;
     } else {
         // Handle trading UI buttons
         bot.send_message(
@@ -849,6 +861,154 @@ async fn handle_watchlist_remove_token(
     presenter
         .remove_from_watchlist(telegram_id, token_address)
         .await?;
+
+    Ok(())
+}
+
+// Function to start the withdraw flow
+async fn handle_withdraw_start(
+    bot: &Bot,
+    message: Message,
+    telegram_id: i64,
+    dialogue: MyDialogue,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
+    let chat_id = message.chat.id;
+
+    // Update dialogue state
+    dialogue
+        .update(State::AwaitingWithdrawTokenSelection)
+        .await?;
+
+    // Create presenter
+    let db_pool = services.db_pool();
+    let solana_client = services.solana_client();
+    let price_service = services.price_service();
+
+    let interactor = Arc::new(
+        crate::interactor::withdraw_interactor::WithdrawInteractorImpl::new(
+            db_pool,
+            solana_client,
+            price_service,
+        ),
+    );
+    let view = Arc::new(crate::view::withdraw_view::TelegramWithdrawView::new(
+        bot.clone(),
+        chat_id,
+    ));
+    let presenter =
+        crate::presenter::withdraw_presenter::WithdrawPresenterImpl::new(interactor, view);
+
+    // Start the withdraw flow
+    presenter.start_withdraw_flow(telegram_id).await?;
+
+    Ok(())
+}
+
+// Function to handle token selection
+async fn handle_withdraw_token_selection(
+    bot: &Bot,
+    token_address: &str,
+    message: Message,
+    telegram_id: i64,
+    dialogue: MyDialogue,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
+    let chat_id = message.chat.id;
+
+    // Create presenter and interactor
+    let db_pool = services.db_pool();
+    let solana_client = services.solana_client();
+    let price_service = services.price_service();
+
+    let interactor = Arc::new(
+        crate::interactor::withdraw_interactor::WithdrawInteractorImpl::new(
+            db_pool.clone(),
+            solana_client.clone(),
+            price_service.clone(),
+        ),
+    );
+
+    // Get token info and balance
+    match interactor.get_user_tokens(telegram_id).await {
+        Ok(tokens) => {
+            let token = tokens.iter().find(|t| t.mint_address == token_address);
+
+            if let Some(token_balance) = token {
+                // Get current token price
+                match interactor.get_token_price(token_address).await {
+                    Ok((price_in_sol, price_in_usdc)) => {
+                        // Update dialogue state
+                        dialogue
+                            .update(State::AwaitingWithdrawRecipientAddress {
+                                token_address: token_address.to_string(),
+                                token_symbol: token_balance.symbol.clone(),
+                                amount: token_balance.amount,
+                                price_in_sol,
+                                price_in_usdc,
+                            })
+                            .await?;
+
+                        // Calculate total values
+                        let total_sol_value = token_balance.amount * price_in_sol;
+                        let total_usdc_value = token_balance.amount * price_in_usdc;
+
+                        // Format address for display (shortened)
+                        let short_address = if token_address.len() > 12 {
+                            format!(
+                                "{}...{}",
+                                &token_address[..6],
+                                &token_address[token_address.len() - 6..]
+                            )
+                        } else {
+                            token_address.to_string()
+                        };
+
+                        // Show token details and prompt for recipient
+                        bot.send_message(
+                            chat_id,
+                            format!(
+                                "<b>{} Token Details</b>\n\n\
+                                • Symbol: <b>{}</b>\n\
+                                • Address: <code>{}</code>\n\
+                                • Your Balance: <b>{:.6}</b>\n\
+                                • Price: <b>{:.6} SOL</b> (${:.2})\n\
+                                • Total Value: <b>{:.6} SOL</b> (${:.2})\n\n\
+                                Enter the recipient's Solana address:",
+                                token_balance.symbol,
+                                token_balance.symbol,
+                                short_address,
+                                token_balance.amount,
+                                price_in_sol,
+                                price_in_usdc,
+                                total_sol_value,
+                                total_usdc_value
+                            ),
+                        )
+                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .await?;
+                    }
+                    Err(e) => {
+                        bot.send_message(chat_id, format!("Error getting token price: {}", e))
+                            .await?;
+                    }
+                }
+            } else {
+                bot.send_message(
+                    chat_id,
+                    format!(
+                        "Token with address {} not found in your wallet",
+                        token_address
+                    ),
+                )
+                .await?;
+            }
+        }
+        Err(e) => {
+            bot.send_message(chat_id, format!("Error retrieving tokens: {}", e))
+                .await?;
+        }
+    }
 
     Ok(())
 }

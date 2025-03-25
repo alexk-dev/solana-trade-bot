@@ -12,7 +12,7 @@ pub fn create_wallet_menu_keyboard() -> InlineKeyboardMarkup {
             InlineKeyboardButton::callback("Limit Orders", "limit_orders"),
         ],
         vec![
-            InlineKeyboardButton::callback("Withdraw", "send"),
+            InlineKeyboardButton::callback("Withdraw", "withdraw"),
             InlineKeyboardButton::callback("View Address", "address"),
         ],
         vec![

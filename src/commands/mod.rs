@@ -1,10 +1,6 @@
 use anyhow::Result;
 use std::sync::Arc;
-use teloxide::{
-    dispatching::dialogue::InMemStorage,
-    prelude::*,
-    types::{InlineKeyboardButton, InlineKeyboardMarkup},
-};
+use teloxide::{dispatching::dialogue::InMemStorage, prelude::*};
 
 use crate::di::ServiceContainer;
 use crate::entity::State;
@@ -15,13 +11,13 @@ pub mod help;
 pub mod limit_order;
 pub mod menu;
 pub mod price;
-pub mod send;
-pub(crate) mod settings;
+pub mod settings;
 pub mod start;
 pub mod trade;
 pub mod ui;
 pub mod wallet;
-pub(crate) mod watchlist;
+pub mod watchlist;
+pub mod withdraw;
 
 type MyDialogue = Dialogue<State, InMemStorage<State>>;
 

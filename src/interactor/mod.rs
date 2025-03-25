@@ -9,6 +9,7 @@ pub mod settings_interactor;
 pub mod trade_interactor;
 pub mod wallet_interactor;
 pub(crate) mod watchlist_interactor;
+pub(crate) mod withdraw_interactor;
 
 // Base interactor trait
 #[async_trait]
