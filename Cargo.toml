@@ -5,7 +5,7 @@ edition = "2021"
 description = "A Solana wallet and trading bot for Telegram"
 authors = ["Alex Kuleshov <alex@kuleshov.tech>"]
 repository = "https://github.com/alexk-dev/solana-trade-bot"
-license = "SSPL-1.0"
+license = "MIT"
 
 [dependencies]
 # Telegram Bot API
