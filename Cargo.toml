@@ -1,0 +1,65 @@
+[package]
+name = "solana-trade-bot"
+version = "1.0.0"
+edition = "2021"
+description = "A Solana wallet and trading bot for Telegram"
+authors = ["Alex Kuleshov <alex@kuleshov.tech>"]
+repository = "https://github.com/alexk-dev/solana-trade-bot"
+license = "SSPL-1.0"
+
+[dependencies]
+# Telegram Bot API
+teloxide = { version = "0.13.0", features = ["macros"] }
+
+# Async runtime
+tokio = { version = "1.44.1", features = ["full", "macros", "rt-multi-thread"] }
+
+# Solana libraries
+solana-sdk = "2.2.1"
+solana-client = "2.2.3"
+spl-token = "7.0.0"
+spl-associated-token-account = "6.0.0"
+jupiter-swap-api-client = { git = "https://github.com/alexk-dev/jupiter-swap-api-client.git", package = "jupiter-swap-api-client"}
+
+# Cryptography and wallet generation
+bip39 = { version = "2.1.0", features = ["rand"] }
+ed25519-dalek = "2.1.1"
+rand = "0.9.0"
+bs58 = "0.5.1"
+
+# Database
+sqlx = { version = "0.8.3", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "json", "macros"] }
+
+# Serialization and deserialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# HTTP Client
+reqwest = { version = "0.12.15", features = ["json"] }
+
+# Environment variables
+dotenv = "0.15"
+
+# QR code generation
+qrcode = "0.14.1"
+
+# Logging
+log = "0.4"
+env_logger = "0.11.7"
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling
+thiserror = "2.0.12"
+anyhow = "1.0"
+
+# Utilities
+lazy_static = "1.4"
+async-trait = "0.1"
+regex = "1.8"
+bincode = "1.3.3"
+
+# QR code utilities
+usvg = "0.45.0"
+resvg = "0.45.0"
+tiny-skia = "0.11.4"
+png = "0.17"
