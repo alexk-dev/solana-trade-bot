@@ -5,7 +5,7 @@ pub mod db;
 pub mod limit_order_interactor;
 pub mod price_interactor;
 pub mod send_interactor;
-pub mod swap_interactor;
+pub mod settings_interactor;
 pub mod trade_interactor;
 pub mod wallet_interactor;
 

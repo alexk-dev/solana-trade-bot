@@ -118,6 +118,7 @@ impl Router for TelegramRouter {
         let services_for_dialog9 = self.services.clone();
         let services_for_dialog10 = self.services.clone();
         let services_for_dialog11 = self.services.clone();
+        let services_for_dialog12 = self.services.clone();
 
         let message_handler = Update::filter_message().branch(command_handler).branch(
             dptree::entry()
@@ -273,7 +274,16 @@ impl Router for TelegramRouter {
                             }
                         },
                     ),
-                ),
+                )
+                .branch(case![State::AwaitingSlippageInput].endpoint(
+                    move |bot: Bot, msg: Message, dialogue: MyDialogue| {
+                        let services = services_for_dialog12.clone();
+                        async move {
+                            commands::settings::handle_slippage_input(bot, msg, dialogue, services)
+                                .await
+                        }
+                    },
+                )),
         );
 
         // Add callback query handler for our buttons

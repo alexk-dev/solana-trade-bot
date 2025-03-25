@@ -49,6 +49,7 @@ pub async fn get_user_by_telegram_id(pool: &PgPool, telegram_id: i64) -> Result<
         solana_address: row.try_get("solana_address")?,
         encrypted_private_key: row.try_get("encrypted_private_key")?,
         mnemonic: row.try_get("mnemonic")?,
+        settings: row.try_get("settings")?,
         created_at: row.try_get("created_at")?,
     };
 
@@ -543,4 +544,59 @@ pub async fn get_user_by_id(pool: &PgPool, user_id: i32) -> Result<User, SqlxErr
         .await?;
 
     Ok(row)
+}
+
+// Update user settings
+pub async fn update_user_settings(
+    pool: &PgPool,
+    telegram_id: i64,
+    settings: &serde_json::Value,
+) -> Result<PgQueryResult, SqlxError> {
+    let result = sqlx::query("UPDATE users SET settings = $1 WHERE telegram_id = $2")
+        .bind(settings)
+        .bind(telegram_id)
+        .execute(pool)
+        .await?;
+
+    info!(
+        "Updated settings for user with Telegram ID: {}",
+        telegram_id
+    );
+
+    Ok(result)
+}
+
+// Update user slippage setting
+pub async fn update_user_slippage(
+    pool: &PgPool,
+    telegram_id: i64,
+    slippage: f64,
+) -> Result<PgQueryResult, SqlxError> {
+    // Get current user settings
+    let user = get_user_by_telegram_id(pool, telegram_id).await?;
+
+    // Create updated settings
+    let mut settings = user.settings.unwrap_or_else(|| serde_json::json!({}));
+
+    // Limit slippage to reasonable range (0.1% to 5%)
+    let slippage = slippage.max(0.1).min(5.0);
+
+    // Update the slippage value
+    if let Some(obj) = settings.as_object_mut() {
+        obj.insert("slippage".to_string(), serde_json::json!(slippage));
+    }
+
+    // Save to database
+    let result = sqlx::query("UPDATE users SET settings = $1 WHERE telegram_id = $2")
+        .bind(settings)
+        .bind(telegram_id)
+        .execute(pool)
+        .await?;
+
+    info!(
+        "Updated slippage setting to {}% for user with Telegram ID: {}",
+        slippage, telegram_id
+    );
+
+    Ok(result)
 }

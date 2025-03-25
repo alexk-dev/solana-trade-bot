@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
     solana_address VARCHAR,
     encrypted_private_key VARCHAR,
     mnemonic VARCHAR,
+    settings JSONB DEFAULT '{"slippage": 0.5}',
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 

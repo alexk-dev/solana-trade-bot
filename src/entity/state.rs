@@ -51,4 +51,5 @@ pub enum State {
         amount: f64,
         total_sol: f64,
     },
+    AwaitingSlippageInput,
 }

@@ -16,6 +16,7 @@ pub mod limit_order;
 pub mod menu;
 pub mod price;
 pub mod send;
+pub(crate) mod settings;
 pub mod start;
 pub mod trade;
 pub mod ui;

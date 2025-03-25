@@ -10,10 +10,10 @@ use crate::commands::{help, price, send, trade, ui, wallet, CommandHandler, MyDi
 use crate::di::ServiceContainer;
 use crate::entity::State;
 use crate::interactor::balance_interactor::{BalanceInteractor, BalanceInteractorImpl};
-use crate::interactor::swap_interactor::SwapInteractorImpl;
 use crate::interactor::wallet_interactor::WalletInteractorImpl;
 use crate::presenter::balance_presenter::{BalancePresenter, BalancePresenterImpl};
 use crate::presenter::limit_order_presenter::LimitOrderPresenter;
+use crate::presenter::settings_presenter::SettingsPresenter;
 use crate::view::balance_view::TelegramBalanceView;
 
 // Main callback handler function
@@ -136,6 +136,16 @@ pub async fn handle_callback(
     } else if callback_data == "confirm_cancel_all" {
         // Handle confirmation of cancelling all orders
         handle_confirm_cancel_all(&bot, message.clone(), telegram_id, services).await?;
+    } else if callback_data == "settings" {
+        // Handle settings menu action
+        handle_settings_menu(&bot, message.clone(), telegram_id, services).await?;
+    } else if callback_data == "set_slippage" {
+        // Handle slippage setting action
+        handle_set_slippage(&bot, message.clone(), dialogue, telegram_id, services).await?;
+    } else if callback_data.starts_with("slippage_") {
+        // Handle preset slippage values
+        handle_preset_slippage(&bot, &callback_data, message.clone(), telegram_id, services)
+            .await?;
     } else {
         // Handle trading UI buttons
         bot.send_message(
@@ -535,6 +545,91 @@ async fn handle_confirm_cancel_all(
 
     // Refresh the orders list
     handle_limit_orders(bot, message, telegram_id, services).await?;
+
+    Ok(())
+}
+
+// Function to handle showing settings menu
+async fn handle_settings_menu(
+    bot: &Bot,
+    message: Message,
+    telegram_id: i64,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
+    let chat_id = message.chat.id;
+
+    // Create presenter for settings
+    let db_pool = services.db_pool();
+    let interactor =
+        Arc::new(crate::interactor::settings_interactor::SettingsInteractorImpl::new(db_pool));
+    let view = Arc::new(crate::view::settings_view::TelegramSettingsView::new(
+        bot.clone(),
+        chat_id,
+    ));
+    let presenter =
+        crate::presenter::settings_presenter::SettingsPresenterImpl::new(interactor, view);
+
+    // Show settings menu
+    presenter.show_settings_menu(telegram_id).await?;
+
+    Ok(())
+}
+
+// Function to handle slippage setting
+async fn handle_set_slippage(
+    bot: &Bot,
+    message: Message,
+    dialogue: MyDialogue,
+    telegram_id: i64,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
+    let chat_id = message.chat.id;
+
+    // Update dialogue state to expect slippage input
+    dialogue.update(State::AwaitingSlippageInput).await?;
+
+    // Show slippage prompt
+    let db_pool = services.db_pool();
+    let interactor =
+        Arc::new(crate::interactor::settings_interactor::SettingsInteractorImpl::new(db_pool));
+    let view = Arc::new(crate::view::settings_view::TelegramSettingsView::new(
+        bot.clone(),
+        chat_id,
+    ));
+    let presenter =
+        crate::presenter::settings_presenter::SettingsPresenterImpl::new(interactor, view);
+
+    presenter.show_slippage_prompt(telegram_id).await?;
+
+    Ok(())
+}
+
+// Function to handle preset slippage selections
+async fn handle_preset_slippage(
+    bot: &Bot,
+    callback_data: &str,
+    message: Message,
+    telegram_id: i64,
+    services: Arc<ServiceContainer>,
+) -> Result<()> {
+    let chat_id = message.chat.id;
+
+    // Extract slippage value from callback data (format: "slippage_X.Y")
+    let slippage_str = callback_data.strip_prefix("slippage_").unwrap_or("0.5");
+    let slippage = slippage_str.parse::<f64>().unwrap_or(0.5);
+
+    // Update slippage setting
+    let db_pool = services.db_pool();
+    let interactor =
+        Arc::new(crate::interactor::settings_interactor::SettingsInteractorImpl::new(db_pool));
+    let view = Arc::new(crate::view::settings_view::TelegramSettingsView::new(
+        bot.clone(),
+        chat_id,
+    ));
+    let presenter =
+        crate::presenter::settings_presenter::SettingsPresenterImpl::new(interactor, view);
+
+    presenter.set_preset_slippage(telegram_id, slippage).await?;
 
     Ok(())
 }
